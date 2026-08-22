@@ -108,7 +108,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
           <ActionPlanCard action={rootCase.action} />
         </section>
 
-        <section className="mb-4 flex items-center gap-2 rounded-xl border border-dashed border-slate-200 px-5 py-4 text-sm text-slate-500">
+        <section className="mb-4 flex items-center gap-2 rounded-xl bg-slate-50 px-5 py-4 text-sm text-slate-500">
           <CalendarCheck2 size={16} className="text-slate-400" />
           6 · Feedback & Grade — check back on {rootCase.checkBackDate} to see if the predicted impact held.
         </section>

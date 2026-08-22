@@ -15,9 +15,9 @@ export function ActionPlanCard({ action }: { action: ActionPlan }) {
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <dl className="divide-y divide-slate-100">
         {rows.map(({ key, label }) => (
-          <div key={key} className="grid grid-cols-1 gap-1 px-5 py-3 sm:grid-cols-[140px_1fr] sm:gap-4">
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
-            <dd className="text-sm text-slate-700">{action[key]}</dd>
+          <div key={key} className="grid grid-cols-1 gap-1.5 px-6 py-4 sm:grid-cols-[160px_1fr] sm:gap-4">
+            <dt className="text-sm font-medium uppercase tracking-wide text-slate-400">{label}</dt>
+            <dd className="text-base text-slate-700">{action[key]}</dd>
           </div>
         ))}
       </dl>
