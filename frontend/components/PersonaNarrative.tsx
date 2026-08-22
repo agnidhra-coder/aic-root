@@ -24,7 +24,7 @@ export function PersonaNarrative({
             className={clsx(
               "rounded-t-lg px-4 py-2.5 text-sm font-medium transition",
               p.id === activeId
-                ? "border-b-2 border-slate-900 text-slate-900"
+                ? "border-b-2 border-accent-500 text-accent-600"
                 : "text-slate-400 hover:text-slate-600"
             )}
           >

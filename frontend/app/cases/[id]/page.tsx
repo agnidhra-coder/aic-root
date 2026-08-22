@@ -30,7 +30,7 @@ export default async function CasePage({ params }: { params: Promise<{ id: strin
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-10">
         <Link
           href="/"
-          className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-900"
+          className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-accent-600"
         >
           <ArrowLeft size={15} />
           Back to dashboard

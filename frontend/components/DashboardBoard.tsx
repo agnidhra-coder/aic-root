@@ -34,7 +34,7 @@ export function DashboardBoard({ kpis }: { kpis: KpiSummary[] }) {
               onClick={() => setDomain(d)}
               className={clsx(
                 "rounded-md px-3.5 py-1.5 text-sm font-medium transition",
-                domain === d ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                domain === d ? "bg-white text-accent-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
               )}
             >
               {domainLabels[d]}

@@ -49,7 +49,7 @@ export function EvidenceCard({ item }: { item: EvidenceItem }) {
         </div>
         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
           <div
-            className={clsx("h-full rounded-full", item.aligned ? "bg-slate-900" : "bg-slate-300")}
+            className={clsx("h-full rounded-full", item.aligned ? "bg-accent-500" : "bg-slate-300")}
             style={{ width: `${item.contribution}%` }}
           />
         </div>

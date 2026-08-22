@@ -23,8 +23,8 @@ export function PipelineStepper({ active }: { active: string }) {
               <div
                 className={clsx(
                   "flex h-9 w-9 items-center justify-center rounded-full border-2 transition",
-                  isActive && "border-slate-900 bg-slate-900 text-white",
-                  done && !isActive && "border-slate-900 bg-white text-slate-900",
+                  isActive && "border-accent-500 bg-accent-500 text-white",
+                  done && !isActive && "border-accent-500 bg-white text-accent-600",
                   !done && !isActive && "border-slate-200 bg-white text-slate-300"
                 )}
               >
@@ -33,14 +33,14 @@ export function PipelineStepper({ active }: { active: string }) {
               <span
                 className={clsx(
                   "text-xs font-medium",
-                  isActive ? "text-slate-900" : done ? "text-slate-600" : "text-slate-300"
+                  isActive ? "text-accent-600" : done ? "text-slate-600" : "text-slate-300"
                 )}
               >
                 {step.label}
               </span>
             </div>
             {i < steps.length - 1 && (
-              <div className={clsx("mx-2 mb-5 h-px flex-1", i < activeIndex ? "bg-slate-900" : "bg-slate-200")} />
+              <div className={clsx("mx-2 mb-5 h-px flex-1", i < activeIndex ? "bg-accent-500" : "bg-slate-200")} />
             )}
           </div>
         );

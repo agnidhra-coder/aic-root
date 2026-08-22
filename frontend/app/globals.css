@@ -10,6 +10,17 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-accent-50: #faf5ff;
+  --color-accent-100: #f3e6ff;
+  --color-accent-200: #e4c7ff;
+  --color-accent-300: #cf9aff;
+  --color-accent-400: #b95cff;
+  --color-accent-500: #a100ff;
+  --color-accent-600: #8c00e0;
+  --color-accent-700: #7200b8;
+  --color-accent-800: #5c0093;
+  --color-accent-900: #4a0077;
 }
 
 body {
@@ -19,5 +30,5 @@ body {
 }
 
 ::selection {
-  background: #cfe0ff;
+  background: var(--color-accent-100);
 }
