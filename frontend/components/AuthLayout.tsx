@@ -29,8 +29,8 @@ export function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="grid min-h-screen grid-cols-1 lg:grid-cols-2">
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-slate-900 p-10 text-white lg:flex">
+    <div className="flex min-h-screen flex-col lg:flex-row">
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-slate-900 p-10 text-white lg:flex lg:w-[36%] lg:min-w-[420px] lg:max-w-md">
         <div className="absolute inset-0 bg-gradient-to-br from-accent-700 via-slate-900 to-slate-900" />
         <div className="relative z-10">
           <Link href="/" className="flex items-center gap-2.5">
@@ -67,7 +67,7 @@ export function AuthLayout({
         <p className="relative z-10 text-xs text-white/40">Root — Team BIAI · Accenture Innovation Challenge 2026</p>
       </div>
 
-      <div className="flex flex-col justify-center px-6 py-12 sm:px-12 lg:px-16">
+      <div className="flex flex-1 flex-col justify-center px-6 py-12 sm:px-12 lg:px-16">
         <div className="mx-auto w-full max-w-sm">
           <Link href="/" className="mb-8 flex items-center gap-2.5 lg:hidden">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-500 text-white">

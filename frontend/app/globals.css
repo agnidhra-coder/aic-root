@@ -32,3 +32,8 @@ body {
 ::selection {
   background: var(--color-accent-100);
 }
+
+button:not(:disabled),
+[role="button"]:not(:disabled) {
+  cursor: pointer;
+}

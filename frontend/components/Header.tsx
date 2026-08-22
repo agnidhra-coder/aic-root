@@ -18,7 +18,7 @@ export function Header() {
           <span className="hidden text-sm text-slate-400 sm:inline">the analyst that shows its work</span>
         </Link>
         <nav className="flex items-center gap-6 text-sm font-medium text-slate-500">
-          <Link href="/" className="transition hover:text-accent-600">
+          <Link href="/dashboard" className="transition hover:text-accent-600">
             Dashboard
           </Link>
           <Link href="/contract" className="transition hover:text-accent-600">
