@@ -1,0 +1,232 @@
+{
+  "$defs": {
+    "Guards": {
+      "additionalProperties": false,
+      "properties": {
+        "denominator_zero": {
+          "default": "nan",
+          "enum": [
+            "nan",
+            "zero",
+            "error"
+          ],
+          "title": "Denominator Zero",
+          "type": "string"
+        },
+        "min_rows_per_cell": {
+          "default": 5,
+          "minimum": 1,
+          "title": "Min Rows Per Cell",
+          "type": "integer"
+        },
+        "min_history_periods": {
+          "default": 28,
+          "minimum": 2,
+          "title": "Min History Periods",
+          "type": "integer"
+        },
+        "clip_quantiles": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clip Quantiles"
+        }
+      },
+      "title": "Guards",
+      "type": "object"
+    },
+    "KpiDef": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "category": {
+          "default": "Uncategorised",
+          "title": "Category",
+          "type": "string"
+        },
+        "measures": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MeasureDef"
+          },
+          "title": "Measures",
+          "type": "object"
+        },
+        "expression": {
+          "description": "Arithmetic over measure aliases only. Parsed by the restricted AST evaluator in semantics.expressions; `eval` is never used.",
+          "title": "Expression",
+          "type": "string"
+        },
+        "unit": {
+          "default": "ratio",
+          "enum": [
+            "currency",
+            "ratio",
+            "percent",
+            "count",
+            "days"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "direction": {
+          "default": "neutral",
+          "enum": [
+            "higher_is_better",
+            "lower_is_better",
+            "neutral"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "drivers": {
+          "description": "Business drivers named in the KPI documentation. Free text; the machine-usable version lives in the causal DAG.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Drivers",
+          "type": "array"
+        },
+        "materiality": {
+          "$ref": "#/$defs/Materiality"
+        },
+        "guards": {
+          "$ref": "#/$defs/Guards"
+        }
+      },
+      "required": [
+        "name",
+        "measures",
+        "expression"
+      ],
+      "title": "KpiDef",
+      "type": "object"
+    },
+    "Materiality": {
+      "additionalProperties": false,
+      "description": "A movement must clear both bars to be worth reporting: statistical and business.",
+      "properties": {
+        "min_abs_pct": {
+          "default": 5.0,
+          "minimum": 0.0,
+          "title": "Min Abs Pct",
+          "type": "number"
+        },
+        "min_business_impact": {
+          "default": 0.0,
+          "description": "Absolute impact in the KPI's unit; 0 disables.",
+          "minimum": 0.0,
+          "title": "Min Business Impact",
+          "type": "number"
+        }
+      },
+      "title": "Materiality",
+      "type": "object"
+    },
+    "MeasureDef": {
+      "additionalProperties": false,
+      "description": "One additive base quantity pulled from a source column.\n\nMeasures are aggregated *before* the KPI expression runs, which is what\nforces ratio-of-sums semantics rather than mean-of-ratios.",
+      "properties": {
+        "column": {
+          "title": "Column",
+          "type": "string"
+        },
+        "agg": {
+          "default": "sum",
+          "enum": [
+            "sum",
+            "mean",
+            "min",
+            "max",
+            "median",
+            "last",
+            "first",
+            "count"
+          ],
+          "title": "Agg",
+          "type": "string"
+        }
+      },
+      "required": [
+        "column"
+      ],
+      "title": "MeasureDef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The semantic contract: definitions, grain, access restrictions.",
+  "properties": {
+    "contract_id": {
+      "title": "Contract Id",
+      "type": "string"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "time_grain": {
+      "default": "day",
+      "enum": [
+        "day",
+        "week",
+        "month"
+      ],
+      "title": "Time Grain",
+      "type": "string"
+    },
+    "entity_keys": {
+      "description": "Dimensions the panel is sliced by. Empty means total-only.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Entity Keys",
+      "type": "array"
+    },
+    "kpis": {
+      "items": {
+        "$ref": "#/$defs/KpiDef"
+      },
+      "title": "Kpis",
+      "type": "array"
+    },
+    "restricted_columns": {
+      "description": "Columns withheld from personas without entitlement. Recorded in lineage so redaction is auditable.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Restricted Columns",
+      "type": "array"
+    }
+  },
+  "required": [
+    "contract_id",
+    "source_id",
+    "kpis"
+  ],
+  "title": "KpiContract",
+  "type": "object"
+}

@@ -1,0 +1,263 @@
+{
+  "$defs": {
+    "BaselineSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "ridge_lags",
+          "enum": [
+            "seasonal_naive",
+            "ridge_lags"
+          ],
+          "title": "Model",
+          "type": "string"
+        },
+        "lags": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Lags",
+          "type": "array"
+        },
+        "rolling_windows": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Rolling Windows",
+          "type": "array"
+        },
+        "min_train_periods": {
+          "default": 28,
+          "minimum": 4,
+          "title": "Min Train Periods",
+          "type": "integer"
+        }
+      },
+      "title": "BaselineSpec",
+      "type": "object"
+    },
+    "ChangePointSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "method": {
+          "default": "both",
+          "enum": [
+            "pelt",
+            "cusum",
+            "both"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "pelt_model": {
+          "default": "rbf",
+          "enum": [
+            "rbf",
+            "l2",
+            "l1"
+          ],
+          "title": "Pelt Model",
+          "type": "string"
+        },
+        "pelt_penalty": {
+          "default": 10.0,
+          "exclusiveMinimum": 0,
+          "title": "Pelt Penalty",
+          "type": "number"
+        },
+        "min_segment": {
+          "default": 14,
+          "minimum": 2,
+          "title": "Min Segment",
+          "type": "integer"
+        },
+        "cusum_k": {
+          "default": 0.5,
+          "description": "Slack in robust sigma units.",
+          "exclusiveMinimum": 0,
+          "title": "Cusum K",
+          "type": "number"
+        },
+        "cusum_h": {
+          "default": 5.0,
+          "description": "Decision interval in robust sigma units.",
+          "exclusiveMinimum": 0,
+          "title": "Cusum H",
+          "type": "number"
+        }
+      },
+      "title": "ChangePointSpec",
+      "type": "object"
+    },
+    "DecompositionSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "period": {
+          "default": 7,
+          "description": "Seasonal period in time-grain steps.",
+          "minimum": 2,
+          "title": "Period",
+          "type": "integer"
+        },
+        "robust": {
+          "default": true,
+          "title": "Robust",
+          "type": "boolean"
+        },
+        "min_periods_required": {
+          "default": 3,
+          "description": "Need this many full cycles before STL is trusted.",
+          "minimum": 2,
+          "title": "Min Periods Required",
+          "type": "integer"
+        }
+      },
+      "title": "DecompositionSpec",
+      "type": "object"
+    },
+    "MultivariateSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "alpha": {
+          "default": 0.001,
+          "description": "Chi-square tail probability.",
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Alpha",
+          "type": "number"
+        },
+        "shrinkage": {
+          "default": 0.1,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Shrinkage",
+          "type": "number"
+        },
+        "min_train_periods": {
+          "default": 60,
+          "minimum": 10,
+          "title": "Min Train Periods",
+          "type": "integer"
+        }
+      },
+      "title": "MultivariateSpec",
+      "type": "object"
+    },
+    "PointSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "z_threshold": {
+          "default": 3.5,
+          "exclusiveMinimum": 0,
+          "title": "Z Threshold",
+          "type": "number"
+        },
+        "mad_floor": {
+          "default": 1e-09,
+          "description": "Guards against zero MAD on constant stretches.",
+          "exclusiveMinimum": 0,
+          "title": "Mad Floor",
+          "type": "number"
+        }
+      },
+      "title": "PointSpec",
+      "type": "object"
+    },
+    "WindowingSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "merge_gap": {
+          "default": 2,
+          "description": "Flags this many *periods* apart join one event window. Converted to days using the contract's time grain, so the value means the same thing whether the panel is daily or weekly.",
+          "minimum": 0,
+          "title": "Merge Gap",
+          "type": "integer"
+        },
+        "min_window_len": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Min Window Len",
+          "type": "integer"
+        },
+        "min_flags": {
+          "default": 2,
+          "description": "Corroboration bar. A lone flag on a heavy-tailed ratio is usually noise; requiring a second flag (or a second detector) is a far more stable filter than chasing the z-threshold upward.",
+          "minimum": 1,
+          "title": "Min Flags",
+          "type": "integer"
+        },
+        "min_detectors": {
+          "default": 1,
+          "description": "Alternative corroboration route: agreement across detector families.",
+          "minimum": 1,
+          "title": "Min Detectors",
+          "type": "integer"
+        },
+        "require_material": {
+          "default": true,
+          "description": "Drop events where no KPI cleared its materiality bar. Statistical significance without business impact is not a finding.",
+          "title": "Require Material",
+          "type": "boolean"
+        }
+      },
+      "title": "WindowingSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "profile_id": {
+      "default": "default",
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "decomposition": {
+      "$ref": "#/$defs/DecompositionSpec"
+    },
+    "baseline": {
+      "$ref": "#/$defs/BaselineSpec"
+    },
+    "point": {
+      "$ref": "#/$defs/PointSpec"
+    },
+    "changepoint": {
+      "$ref": "#/$defs/ChangePointSpec"
+    },
+    "multivariate": {
+      "$ref": "#/$defs/MultivariateSpec"
+    },
+    "windowing": {
+      "$ref": "#/$defs/WindowingSpec"
+    },
+    "confidence_threshold": {
+      "default": 0.7,
+      "description": "Below this the engine abstains.",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Confidence Threshold",
+      "type": "number"
+    }
+  },
+  "title": "DetectionSpec",
+  "type": "object"
+}

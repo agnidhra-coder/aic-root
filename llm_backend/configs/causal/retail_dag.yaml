@@ -1,0 +1,150 @@
+# Governed causal graph.
+#
+# Hand-authored, not discovered. Automated structure learning on 730 noisy periods
+# would happily propose that margin causes ad spend; the direction of a business
+# mechanism is domain knowledge, not something to be inferred from correlation at
+# this sample size. `forbidden_edges` records the reversals explicitly so that a
+# future discovery routine -- or an LLM proposing a graph -- has something to be
+# checked against.
+#
+# `controllable` and `owner` are what turn a statistical driver into an actionable
+# lever with decision rights: a finding about Cost Of Ads reaches a named owner who
+# can act, while one about Total Visitors is context, not a lever.
+graph_id: retail_core_v1
+
+nodes:
+  # --- KPIs (leaves; deterministic functions of their measures) ---
+  - {name: CAC, kind: kpi, description: Sales marketing expense per new customer.}
+  - {name: ROAS, kind: kpi, description: Ad revenue per ad dollar.}
+  - {name: Net Profit Margin, kind: kpi, description: Profit as a share of revenue.}
+  - {name: Conversion Rate, kind: kpi, description: Share of visitors who buy.}
+  - {name: Inventory Turnover, kind: kpi, description: Rate stock is sold and replaced.}
+
+  # --- Controllable levers ---
+  - {name: Sales Marketing Expenses, kind: measure, column: Sales Marketing Expenses,
+     controllable: true, owner: Growth Marketing, description: Total marketing outlay.}
+  - {name: Cost Of Ads, kind: measure, column: Cost Of Ads,
+     controllable: true, owner: Performance Marketing, description: Paid media spend.}
+  - {name: Avg Inventory Cost, kind: measure, column: Avg Inventory Cost,
+     controllable: true, owner: Merchandising, description: Unit cost of held stock.}
+  - {name: Avg Inventory Value, kind: measure, column: Avg Inventory Value,
+     controllable: true, owner: Merchandising, description: Valuation of held stock.}
+  - {name: Total Expenses, kind: measure, column: Total Expenses,
+     controllable: true, owner: Finance, description: Total operating expense.}
+  - {name: COGS, kind: measure, column: COGS,
+     controllable: true, owner: Supply Chain, description: Cost of goods sold.}
+
+  # --- Outcomes and context (not directly settable) ---
+  - {name: New Customers, kind: measure, column: New Customers,
+     controllable: false, owner: Growth Marketing, description: Customers acquired.}
+  - {name: Revenue From Ads, kind: measure, column: Revenue From Ads,
+     controllable: false, owner: Performance Marketing, description: Ad-attributed revenue.}
+  - {name: Net Sales, kind: measure, column: Net Sales,
+     controllable: false, owner: Finance, description: Total revenue booked.}
+  - {name: Total Visitors, kind: measure, column: Total Visitors,
+     controllable: false, owner: Store Operations, description: Traffic across channels.}
+  - {name: Total Transactions, kind: measure, column: Total Transactions,
+     controllable: false, owner: Store Operations, description: Completed purchases.}
+  - {name: Website Sessions, kind: measure, column: Website Sessions,
+     controllable: false, owner: Digital, description: Digital traffic.}
+  - {name: Store Entrances, kind: measure, column: Store Entrances,
+     controllable: false, owner: Store Operations, description: Physical footfall.}
+  - {name: Units Sold, kind: measure, column: Units Sold,
+     controllable: false, owner: Merchandising, description: Unit volume.}
+
+  # --- Supply chain (source: scm_weekly, weekly grain) ---
+  # These live in a different file at a different grain. They are declared here
+  # anyway: the graph is what licenses a cross-source claim, so a supply-side
+  # driver that is not in the graph cannot be offered as an explanation of a
+  # sales-side movement, no matter how well the two windows happen to line up.
+  - {name: Supplier Fill Rate, kind: measure, column: Supplier Fill Rate,
+     controllable: false, owner: Supply Chain,
+     description: Share of ordered units the supplier delivered.}
+  - {name: Lead Time Days, kind: measure, column: Lead Time Days,
+     controllable: false, owner: Supply Chain,
+     description: Days from purchase order to receipt.}
+  - {name: Stockout Days, kind: measure, column: Stockout Days,
+     controllable: false, owner: Supply Chain,
+     description: Days a line was unavailable to sell.}
+  - {name: Purchase Price Per Unit, kind: measure, column: Purchase Price Per Unit,
+     controllable: true, owner: Procurement,
+     description: Negotiated unit cost from the supplier.}
+  - {name: Units Ordered, kind: measure, column: Units Ordered,
+     controllable: true, owner: Supply Chain,
+     description: Replenishment quantity placed with the supplier.}
+  - {name: On Hand Units, kind: measure, column: On Hand Units,
+     controllable: false, owner: Supply Chain,
+     description: Inventory position at period end.}
+
+edges:
+  # Deterministic: fixed by the KPI contract's arithmetic, not estimated.
+  - {source: Sales Marketing Expenses, target: CAC, relation: deterministic}
+  - {source: New Customers, target: CAC, relation: deterministic}
+  - {source: Revenue From Ads, target: ROAS, relation: deterministic}
+  - {source: Cost Of Ads, target: ROAS, relation: deterministic}
+  - {source: Net Sales, target: Net Profit Margin, relation: deterministic}
+  - {source: Total Expenses, target: Net Profit Margin, relation: deterministic}
+  - {source: Total Transactions, target: Conversion Rate, relation: deterministic}
+  - {source: Total Visitors, target: Conversion Rate, relation: deterministic}
+  - {source: COGS, target: Inventory Turnover, relation: deterministic}
+  - {source: Avg Inventory Value, target: Inventory Turnover, relation: deterministic}
+
+  # Causal: behavioural mechanisms, estimated from data.
+  - {source: Cost Of Ads, target: Revenue From Ads, relation: causal,
+     note: Paid media buys impressions that convert to attributed revenue.}
+  - {source: Cost Of Ads, target: New Customers, relation: causal,
+     note: 'Paid reach drives acquisition, with diminishing returns.'}
+  - {source: Sales Marketing Expenses, target: New Customers, relation: causal,
+     note: Total marketing effort drives acquisition.}
+  - {source: Website Sessions, target: Total Visitors, relation: causal}
+  - {source: Store Entrances, target: Total Visitors, relation: causal}
+  - {source: Total Visitors, target: Total Transactions, relation: causal}
+  - {source: New Customers, target: Total Transactions, relation: causal}
+  - {source: Total Transactions, target: Units Sold, relation: causal}
+  - {source: Units Sold, target: COGS, relation: causal}
+  - {source: Avg Inventory Cost, target: COGS, relation: causal}
+  - {source: Units Sold, target: Net Sales, relation: causal}
+  - {source: COGS, target: Total Expenses, relation: causal}
+  - {source: Sales Marketing Expenses, target: Total Expenses, relation: causal}
+
+  # Cross-source: supply chain into sales. Direction is a physical mechanism --
+  # goods must be bought and received before they can be sold and costed -- not a
+  # correlation someone noticed between two files.
+  - {source: Purchase Price Per Unit, target: COGS, relation: causal,
+     note: Unit cost paid to the supplier flows directly into cost of goods sold.}
+  - {source: Supplier Fill Rate, target: Units Sold, relation: causal,
+     note: Units that were never delivered cannot be sold.}
+  - {source: Stockout Days, target: Total Transactions, relation: causal,
+     note: 'A line unavailable to sell converts no visitors, in store or online.'}
+  - {source: Lead Time Days, target: On Hand Units, relation: causal,
+     note: Longer replenishment cycles draw the on-hand position down between receipts.}
+  - {source: Units Ordered, target: On Hand Units, relation: causal}
+  - {source: On Hand Units, target: Avg Inventory Value, relation: causal,
+     note: The physical position is what the valuation is taken over.}
+  - {source: Lead Time Days, target: Stockout Days, relation: causal,
+     note: Stock runs out while the replacement is still in transit.}
+  - {source: Supplier Fill Rate, target: Stockout Days, relation: causal}
+
+forbidden_edges:
+  # Outcomes cannot cause the levers that produced them. Listed so any proposed
+  # graph can be rejected mechanically rather than by review.
+  - [Net Profit Margin, Cost Of Ads]
+  - [Net Profit Margin, Sales Marketing Expenses]
+  - [CAC, Sales Marketing Expenses]
+  - [CAC, New Customers]
+  - [ROAS, Cost Of Ads]
+  - [ROAS, Revenue From Ads]
+  - [Conversion Rate, Total Visitors]
+  - [Inventory Turnover, COGS]
+  - [Total Transactions, Total Visitors]
+  - [Net Sales, Units Sold]
+
+  # Cross-source reversals. Retail demand does not set the supplier's lead time or
+  # its fill rate within a period; proposing either direction is a graph error, not
+  # a finding, and the loader rejects it.
+  - [COGS, Purchase Price Per Unit]
+  - [Units Sold, Supplier Fill Rate]
+  - [Total Transactions, Stockout Days]
+  - [Avg Inventory Value, On Hand Units]
+  - [Inventory Turnover, Lead Time Days]
+  - [Net Profit Margin, Purchase Price Per Unit]

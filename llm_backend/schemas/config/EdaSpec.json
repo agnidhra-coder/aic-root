@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "DecompositionSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "period": {
+          "default": 7,
+          "description": "Seasonal period in time-grain steps.",
+          "minimum": 2,
+          "title": "Period",
+          "type": "integer"
+        },
+        "robust": {
+          "default": true,
+          "title": "Robust",
+          "type": "boolean"
+        },
+        "min_periods_required": {
+          "default": 3,
+          "description": "Need this many full cycles before STL is trusted.",
+          "minimum": 2,
+          "title": "Min Periods Required",
+          "type": "integer"
+        }
+      },
+      "title": "DecompositionSpec",
+      "type": "object"
+    },
+    "SegmentSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "pelt_penalty": {
+          "default": 12.0,
+          "description": "Matches configs/detection/default.yaml for consistency.",
+          "exclusiveMinimum": 0,
+          "title": "Pelt Penalty",
+          "type": "number"
+        },
+        "min_segment": {
+          "default": 4,
+          "minimum": 2,
+          "title": "Min Segment",
+          "type": "integer"
+        },
+        "max_segments": {
+          "default": 6,
+          "description": "Keeps the narration surface small and readable.",
+          "minimum": 1,
+          "title": "Max Segments",
+          "type": "integer"
+        }
+      },
+      "title": "SegmentSpec",
+      "type": "object"
+    },
+    "TrendSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "alpha": {
+          "default": 0.05,
+          "description": "Mann-Kendall significance for calling a direction.",
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Alpha",
+          "type": "number"
+        },
+        "min_periods": {
+          "default": 8,
+          "description": "Below this a slope is not meaningfully estimable.",
+          "minimum": 4,
+          "title": "Min Periods",
+          "type": "integer"
+        },
+        "flat_slope_pct": {
+          "default": 0.5,
+          "description": "A per-period rate at or above this |%/period| is material on its own.",
+          "minimum": 0,
+          "title": "Flat Slope Pct",
+          "type": "number"
+        },
+        "min_total_change_pct": {
+          "default": 5.0,
+          "description": "A trend is also material if it moves the level this much end to end, however slowly. Matches the Materiality.min_abs_pct convention. Both bars exist because neither alone works: a rate test calls a 0.4%/period drift flat when it compounds to +52% over two years, and a cumulative test alone would flag a barely-moving series measured over a long enough window.",
+          "minimum": 0,
+          "title": "Min Total Change Pct",
+          "type": "number"
+        }
+      },
+      "title": "TrendSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "profile_id": {
+      "default": "default",
+      "title": "Profile Id",
+      "type": "string"
+    },
+    "decomposition": {
+      "$ref": "#/$defs/DecompositionSpec"
+    },
+    "trend": {
+      "$ref": "#/$defs/TrendSpec"
+    },
+    "segments": {
+      "$ref": "#/$defs/SegmentSpec"
+    },
+    "min_history": {
+      "default": 12,
+      "description": "Fewer periods than this and the profile is marked unusable.",
+      "minimum": 2,
+      "title": "Min History",
+      "type": "integer"
+    },
+    "seasonality_floor": {
+      "default": 0.45,
+      "description": "Below this strength, report no seasonality rather than subtract noise. Calibrated above the p99 of STL seasonal strength on pure noise; see configs/eda/default.yaml for the measured null distribution.",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Seasonality Floor",
+      "type": "number"
+    },
+    "outlier_z": {
+      "default": 3.5,
+      "description": "Modified-z cutoff for the descriptive outlier share.",
+      "exclusiveMinimum": 0,
+      "title": "Outlier Z",
+      "type": "number"
+    }
+  },
+  "title": "EdaSpec",
+  "type": "object"
+}

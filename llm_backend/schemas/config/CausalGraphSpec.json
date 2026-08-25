@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "CausalEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "relation": {
+          "default": "causal",
+          "enum": [
+            "deterministic",
+            "causal"
+          ],
+          "title": "Relation",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target"
+      ],
+      "title": "CausalEdge",
+      "type": "object"
+    },
+    "CausalNode": {
+      "additionalProperties": false,
+      "description": "A node in the governed DAG.\n\n`controllable` and `owner` are what later turn a statistical driver into an\nactionable lever with decision rights attached.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "default": "measure",
+          "enum": [
+            "measure",
+            "kpi",
+            "external"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source column, when kind == measure.",
+          "title": "Column"
+        },
+        "controllable": {
+          "default": false,
+          "title": "Controllable",
+          "type": "boolean"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "CausalNode",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "graph_id": {
+      "title": "Graph Id",
+      "type": "string"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/CausalNode"
+      },
+      "title": "Nodes",
+      "type": "array"
+    },
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/CausalEdge"
+      },
+      "title": "Edges",
+      "type": "array"
+    },
+    "forbidden_edges": {
+      "description": "Semantically impossible directions, e.g. (Net Margin, Cost Of Ads). Rejected even if a discovery routine proposes them.",
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "type": "array"
+      },
+      "title": "Forbidden Edges",
+      "type": "array"
+    }
+  },
+  "required": [
+    "graph_id",
+    "nodes",
+    "edges"
+  ],
+  "title": "CausalGraphSpec",
+  "type": "object"
+}

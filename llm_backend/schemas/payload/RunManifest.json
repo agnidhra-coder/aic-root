@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "StageTelemetry": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "duration_ms": {
+          "title": "Duration Ms",
+          "type": "number"
+        },
+        "rows_in": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows In"
+        },
+        "rows_out": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows Out"
+        },
+        "notes": {
+          "additionalProperties": true,
+          "title": "Notes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "stage",
+        "started_at",
+        "duration_ms"
+      ],
+      "title": "StageTelemetry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "run_id": {
+      "title": "Run Id",
+      "type": "string"
+    },
+    "started_at": {
+      "format": "date-time",
+      "title": "Started At",
+      "type": "string"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "dataset": {
+      "title": "Dataset",
+      "type": "string"
+    },
+    "configs": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Configs",
+      "type": "object"
+    },
+    "stages": {
+      "items": {
+        "$ref": "#/$defs/StageTelemetry"
+      },
+      "title": "Stages",
+      "type": "array"
+    },
+    "total_duration_ms": {
+      "default": 0.0,
+      "title": "Total Duration Ms",
+      "type": "number"
+    },
+    "counts": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Counts",
+      "type": "object"
+    },
+    "llm_calls": {
+      "default": 0,
+      "title": "Llm Calls",
+      "type": "integer"
+    },
+    "llm_tokens_in": {
+      "default": 0,
+      "title": "Llm Tokens In",
+      "type": "integer"
+    },
+    "llm_tokens_out": {
+      "default": 0,
+      "title": "Llm Tokens Out",
+      "type": "integer"
+    },
+    "llm_cost_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": 0.0,
+      "description": "None when the model's rates are not known. Distinct from 0.0, which would read as a run that cost nothing.",
+      "title": "Llm Cost Usd"
+    },
+    "llm_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Llm Model"
+    }
+  },
+  "required": [
+    "run_id",
+    "started_at",
+    "dataset"
+  ],
+  "title": "RunManifest",
+  "type": "object"
+}

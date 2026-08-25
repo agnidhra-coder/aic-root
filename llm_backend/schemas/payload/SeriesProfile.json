@@ -1,0 +1,448 @@
+{
+  "$defs": {
+    "DataQualitySummary": {
+      "additionalProperties": false,
+      "description": "How far this series can be trusted. Tells a narrator when to stay quiet.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "n_periods": {
+          "title": "N Periods",
+          "type": "integer"
+        },
+        "n_missing": {
+          "title": "N Missing",
+          "type": "integer"
+        },
+        "coverage": {
+          "description": "Non-null periods / periods spanned.",
+          "title": "Coverage",
+          "type": "number"
+        },
+        "longest_gap_periods": {
+          "title": "Longest Gap Periods",
+          "type": "integer"
+        },
+        "mean_support": {
+          "description": "Mean raw rows backing each cell.",
+          "title": "Mean Support",
+          "type": "number"
+        },
+        "min_support": {
+          "title": "Min Support",
+          "type": "integer"
+        },
+        "low_support_share": {
+          "description": "Share of cells below the contract's guard.",
+          "title": "Low Support Share",
+          "type": "number"
+        },
+        "sufficient_history": {
+          "title": "Sufficient History",
+          "type": "boolean"
+        },
+        "volatility_cv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Robust coefficient of variation: MAD-sigma / |median|.",
+          "title": "Volatility Cv"
+        },
+        "outlier_share": {
+          "default": 0.0,
+          "description": "Share beyond modified-z 3.5. Descriptive only, not a detection.",
+          "title": "Outlier Share",
+          "type": "number"
+        }
+      },
+      "required": [
+        "n_periods",
+        "n_missing",
+        "coverage",
+        "longest_gap_periods",
+        "mean_support",
+        "min_support",
+        "low_support_share",
+        "sufficient_history"
+      ],
+      "title": "DataQualitySummary",
+      "type": "object"
+    },
+    "Lineage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "contract_id": {
+          "title": "Contract Id",
+          "type": "string"
+        },
+        "kpi": {
+          "title": "Kpi",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "time_grain": {
+          "title": "Time Grain",
+          "type": "string"
+        },
+        "entity_filter": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Entity Filter",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_path",
+        "contract_id",
+        "kpi",
+        "columns",
+        "time_grain"
+      ],
+      "title": "Lineage",
+      "type": "object"
+    },
+    "SeasonalitySummary": {
+      "additionalProperties": false,
+      "description": "Whether a repeating cycle exists -- and says so honestly when it does not.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "detected": {
+          "title": "Detected",
+          "type": "boolean"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Period"
+        },
+        "strength": {
+          "description": "Hyndman-Wang seasonal strength, 0-1.",
+          "title": "Strength",
+          "type": "number"
+        },
+        "peak_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where in the cycle the peak sits.",
+          "title": "Peak Label"
+        },
+        "trough_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trough Label"
+        },
+        "reason": {
+          "description": "Why seasonality was or was not called.",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "detected",
+        "strength",
+        "reason"
+      ],
+      "title": "SeasonalitySummary",
+      "type": "object"
+    },
+    "SeriesSegment": {
+      "additionalProperties": false,
+      "description": "A homogeneous stretch between structural breaks -- a 'phase' to narrate.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "start": {
+          "format": "date",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "format": "date",
+          "title": "End",
+          "type": "string"
+        },
+        "n_periods": {
+          "title": "N Periods",
+          "type": "integer"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "slope_per_period": {
+          "title": "Slope Per Period",
+          "type": "number"
+        },
+        "direction": {
+          "enum": [
+            "rising",
+            "falling",
+            "flat",
+            "indeterminate"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "pct_change_vs_previous": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pct Change Vs Previous"
+        }
+      },
+      "required": [
+        "index",
+        "start",
+        "end",
+        "n_periods",
+        "mean",
+        "slope_per_period",
+        "direction"
+      ],
+      "title": "SeriesSegment",
+      "type": "object"
+    },
+    "TrendSummary": {
+      "additionalProperties": false,
+      "description": "Direction and rate of the underlying level, robust to outliers.\n\nTheil-Sen rather than OLS on purpose: OLS slope is dragged by exactly the\nspikes detection exists to flag, so a single anomaly would be reported as a\ntrend. Significance is Mann-Kendall (rank-based, no normality assumption).",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "rising",
+            "falling",
+            "flat",
+            "indeterminate"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "slope_per_period": {
+          "description": "Theil-Sen slope in KPI units per period.",
+          "title": "Slope Per Period",
+          "type": "number"
+        },
+        "slope_pct_per_period": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Slope as % of the median level -- the number a human quotes.",
+          "title": "Slope Pct Per Period"
+        },
+        "trend_strength": {
+          "description": "Hyndman-Wang trend strength, 0-1, from STL.",
+          "title": "Trend Strength",
+          "type": "number"
+        },
+        "r_squared": {
+          "title": "R Squared",
+          "type": "number"
+        },
+        "p_value": {
+          "description": "Mann-Kendall; above alpha the direction is not called.",
+          "title": "P Value",
+          "type": "number"
+        },
+        "total_change_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fitted first-to-last change, in percent.",
+          "title": "Total Change Pct"
+        },
+        "n_periods": {
+          "title": "N Periods",
+          "type": "integer"
+        },
+        "method": {
+          "default": "theil_sen + mann_kendall",
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "direction",
+        "slope_per_period",
+        "trend_strength",
+        "r_squared",
+        "p_value",
+        "n_periods"
+      ],
+      "title": "TrendSummary",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Everything descriptive known about one KPI on one entity slice.",
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kpi": {
+      "title": "Kpi",
+      "type": "string"
+    },
+    "entity": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Entity",
+      "type": "object"
+    },
+    "period_start": {
+      "format": "date",
+      "title": "Period Start",
+      "type": "string"
+    },
+    "period_end": {
+      "format": "date",
+      "title": "Period End",
+      "type": "string"
+    },
+    "time_grain": {
+      "title": "Time Grain",
+      "type": "string"
+    },
+    "trend": {
+      "$ref": "#/$defs/TrendSummary"
+    },
+    "seasonality": {
+      "$ref": "#/$defs/SeasonalitySummary"
+    },
+    "quality": {
+      "$ref": "#/$defs/DataQualitySummary"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/SeriesSegment"
+      },
+      "title": "Segments",
+      "type": "array"
+    },
+    "headline": {
+      "description": "Deterministic template sentence. A check on the narrator, not a substitute.",
+      "title": "Headline",
+      "type": "string"
+    },
+    "usable": {
+      "description": "False when history or support is too thin to characterise.",
+      "title": "Usable",
+      "type": "boolean"
+    },
+    "unusable_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unusable Reason"
+    },
+    "lineage": {
+      "$ref": "#/$defs/Lineage"
+    }
+  },
+  "required": [
+    "kpi",
+    "period_start",
+    "period_end",
+    "time_grain",
+    "trend",
+    "seasonality",
+    "quality",
+    "headline",
+    "usable",
+    "lineage"
+  ],
+  "title": "SeriesProfile",
+  "type": "object"
+}

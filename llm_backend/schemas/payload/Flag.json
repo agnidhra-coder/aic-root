@@ -1,0 +1,118 @@
+{
+  "additionalProperties": false,
+  "description": "One period flagged by one detector on one series.",
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kpi": {
+      "title": "Kpi",
+      "type": "string"
+    },
+    "entity": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Entity",
+      "type": "object"
+    },
+    "period": {
+      "format": "date",
+      "title": "Period",
+      "type": "string"
+    },
+    "detector": {
+      "enum": [
+        "point",
+        "changepoint_pelt",
+        "changepoint_cusum",
+        "multivariate"
+      ],
+      "title": "Detector",
+      "type": "string"
+    },
+    "anomaly_type": {
+      "enum": [
+        "Point Deviation",
+        "Sustained Trend Drift",
+        "Structural Break",
+        "Multivariate Divergence"
+      ],
+      "title": "Anomaly Type",
+      "type": "string"
+    },
+    "observed": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Observed"
+    },
+    "expected": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Expected"
+    },
+    "residual": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Residual"
+    },
+    "score": {
+      "description": "Detector-native score (|z|, Mahalanobis D, CUSUM stat).",
+      "title": "Score",
+      "type": "number"
+    },
+    "threshold": {
+      "title": "Threshold",
+      "type": "number"
+    },
+    "support": {
+      "description": "Raw rows backing this cell; drives abstention.",
+      "title": "Support",
+      "type": "integer"
+    },
+    "direction": {
+      "default": "unknown",
+      "enum": [
+        "up",
+        "down",
+        "unknown"
+      ],
+      "title": "Direction",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kpi",
+    "period",
+    "detector",
+    "anomaly_type",
+    "observed",
+    "expected",
+    "residual",
+    "score",
+    "threshold",
+    "support"
+  ],
+  "title": "Flag",
+  "type": "object"
+}

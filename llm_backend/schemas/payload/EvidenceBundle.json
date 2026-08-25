@@ -1,0 +1,760 @@
+{
+  "$defs": {
+    "AbstainPayload": {
+      "additionalProperties": false,
+      "description": "Emitted instead of a finding when evidence is insufficient or contradictory.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Event Id"
+        },
+        "kpi": {
+          "title": "Kpi",
+          "type": "string"
+        },
+        "reason_code": {
+          "enum": [
+            "insufficient_support",
+            "insufficient_history",
+            "failed_parallel_trends",
+            "contradictory_methods",
+            "below_confidence_threshold",
+            "no_valid_covariates"
+          ],
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "missing_evidence": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Evidence",
+          "type": "array"
+        },
+        "what_would_resolve_it": {
+          "items": {
+            "type": "string"
+          },
+          "title": "What Would Resolve It",
+          "type": "array"
+        }
+      },
+      "required": [
+        "event_id",
+        "kpi",
+        "reason_code",
+        "message"
+      ],
+      "title": "AbstainPayload",
+      "type": "object"
+    },
+    "Attribution": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "kpi": {
+          "title": "Kpi",
+          "type": "string"
+        },
+        "total_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Delta"
+        },
+        "explained_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Explained Delta"
+        },
+        "residual_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Residual Delta"
+        },
+        "method_choice": {
+          "$ref": "#/$defs/MethodChoice"
+        },
+        "contributions": {
+          "items": {
+            "$ref": "#/$defs/Contribution"
+          },
+          "title": "Contributions",
+          "type": "array"
+        },
+        "diagnostics": {
+          "additionalProperties": true,
+          "title": "Diagnostics",
+          "type": "object"
+        }
+      },
+      "required": [
+        "event_id",
+        "kpi",
+        "total_delta",
+        "explained_delta",
+        "residual_delta",
+        "method_choice",
+        "contributions"
+      ],
+      "title": "Attribution",
+      "type": "object"
+    },
+    "ConfidenceBreakdown": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Score",
+          "type": "number"
+        },
+        "signal_to_noise": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal To Noise"
+        },
+        "support_factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Support Factor"
+        },
+        "history_factor": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "History Factor"
+        },
+        "estimator_precision": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimator Precision"
+        },
+        "method_agreement": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Method Agreement"
+        },
+        "formula": {
+          "title": "Formula",
+          "type": "string"
+        }
+      },
+      "required": [
+        "score",
+        "formula"
+      ],
+      "title": "ConfidenceBreakdown",
+      "type": "object"
+    },
+    "Contribution": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "driver": {
+          "title": "Driver",
+          "type": "string"
+        },
+        "contribution": {
+          "description": "In the KPI's own units unless stated otherwise.",
+          "title": "Contribution",
+          "type": "number"
+        },
+        "share": {
+          "description": "Signed fraction of the total explained movement.",
+          "title": "Share",
+          "type": "number"
+        },
+        "method": {
+          "enum": [
+            "algebraic_lmdi",
+            "mix_decomposition",
+            "did",
+            "its",
+            "dml",
+            "none"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "exact": {
+          "description": "True when derived algebraically rather than estimated.",
+          "title": "Exact",
+          "type": "boolean"
+        },
+        "std_error": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Std Error"
+        },
+        "ci_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci Low"
+        },
+        "ci_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci High"
+        },
+        "controllable": {
+          "default": false,
+          "title": "Controllable",
+          "type": "boolean"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        }
+      },
+      "required": [
+        "driver",
+        "contribution",
+        "share",
+        "method",
+        "exact"
+      ],
+      "title": "Contribution",
+      "type": "object"
+    },
+    "EventWindow": {
+      "additionalProperties": false,
+      "description": "Contiguous flags clustered into one reportable event.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "anomaly_types": {
+          "items": {
+            "enum": [
+              "Point Deviation",
+              "Sustained Trend Drift",
+              "Structural Break",
+              "Multivariate Divergence"
+            ],
+            "type": "string"
+          },
+          "title": "Anomaly Types",
+          "type": "array"
+        },
+        "detectors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Detectors",
+          "type": "array"
+        },
+        "window_start": {
+          "format": "date",
+          "title": "Window Start",
+          "type": "string"
+        },
+        "window_end": {
+          "format": "date",
+          "title": "Window End",
+          "type": "string"
+        },
+        "entity": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Entity",
+          "type": "object"
+        },
+        "primary_kpis_affected": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Primary Kpis Affected",
+          "type": "array"
+        },
+        "observed_deviations": {
+          "items": {
+            "$ref": "#/$defs/ObservedDeviation"
+          },
+          "title": "Observed Deviations",
+          "type": "array"
+        },
+        "candidate_covariates": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Covariates",
+          "type": "array"
+        },
+        "excluded_covariates": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "covariate -> reason it was barred (collinearity, etc).",
+          "title": "Excluded Covariates",
+          "type": "object"
+        },
+        "peak_score": {
+          "title": "Peak Score",
+          "type": "number"
+        },
+        "n_flags": {
+          "title": "N Flags",
+          "type": "integer"
+        },
+        "min_support": {
+          "title": "Min Support",
+          "type": "integer"
+        },
+        "lineage": {
+          "$ref": "#/$defs/Lineage"
+        }
+      },
+      "required": [
+        "event_id",
+        "anomaly_types",
+        "detectors",
+        "window_start",
+        "window_end",
+        "primary_kpis_affected",
+        "observed_deviations",
+        "candidate_covariates",
+        "peak_score",
+        "n_flags",
+        "min_support",
+        "lineage"
+      ],
+      "title": "EventWindow",
+      "type": "object"
+    },
+    "Freshness": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "max_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Max Date"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "lag_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lag Days"
+        },
+        "refresh_cadence": {
+          "title": "Refresh Cadence",
+          "type": "string"
+        },
+        "is_stale": {
+          "title": "Is Stale",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source_id",
+        "max_date",
+        "as_of",
+        "lag_days",
+        "refresh_cadence",
+        "is_stale"
+      ],
+      "title": "Freshness",
+      "type": "object"
+    },
+    "Lineage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "contract_id": {
+          "title": "Contract Id",
+          "type": "string"
+        },
+        "kpi": {
+          "title": "Kpi",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "time_grain": {
+          "title": "Time Grain",
+          "type": "string"
+        },
+        "entity_filter": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Entity Filter",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_path",
+        "contract_id",
+        "kpi",
+        "columns",
+        "time_grain"
+      ],
+      "title": "Lineage",
+      "type": "object"
+    },
+    "MethodChoice": {
+      "additionalProperties": false,
+      "description": "Why one causal method was used and the others were not \u2014 evidence in its own right.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "chosen": {
+          "enum": [
+            "algebraic_lmdi",
+            "mix_decomposition",
+            "did",
+            "its",
+            "dml",
+            "none"
+          ],
+          "title": "Chosen",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "considered": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "method -> why it was rejected.",
+          "title": "Considered",
+          "type": "object"
+        },
+        "preconditions_checked": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "title": "Preconditions Checked",
+          "type": "object"
+        }
+      },
+      "required": [
+        "chosen",
+        "reason"
+      ],
+      "title": "MethodChoice",
+      "type": "object"
+    },
+    "ObservedDeviation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kpi": {
+          "title": "Kpi",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected"
+        },
+        "actual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actual"
+        },
+        "abs_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Abs Delta"
+        },
+        "pct_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pct Delta"
+        },
+        "material": {
+          "title": "Material",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kpi",
+        "expected",
+        "actual",
+        "abs_delta",
+        "pct_delta",
+        "material"
+      ],
+      "title": "ObservedDeviation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The single object a narration layer consumes. Nothing else is passed on.\n\nEvery number here was produced by deterministic code or a named estimator;\nno field is intended to be filled by a language model.",
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "event": {
+      "$ref": "#/$defs/EventWindow"
+    },
+    "attributions": {
+      "items": {
+        "$ref": "#/$defs/Attribution"
+      },
+      "title": "Attributions",
+      "type": "array"
+    },
+    "confidence": {
+      "$ref": "#/$defs/ConfidenceBreakdown"
+    },
+    "abstained": {
+      "title": "Abstained",
+      "type": "boolean"
+    },
+    "abstention": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AbstainPayload"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "freshness": {
+      "$ref": "#/$defs/Freshness"
+    },
+    "lineage": {
+      "$ref": "#/$defs/Lineage"
+    },
+    "deterministic_methods": {
+      "description": "Non-LLM methods that produced these numbers.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Deterministic Methods",
+      "type": "array"
+    },
+    "llm_methods": {
+      "description": "Empty in v1; reserved for the narration stage.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Llm Methods",
+      "type": "array"
+    }
+  },
+  "required": [
+    "event_id",
+    "generated_at",
+    "event",
+    "attributions",
+    "confidence",
+    "abstained",
+    "freshness",
+    "lineage"
+  ],
+  "title": "EvidenceBundle",
+  "type": "object"
+}

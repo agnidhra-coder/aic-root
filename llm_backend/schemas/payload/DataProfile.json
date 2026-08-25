@@ -1,0 +1,366 @@
+{
+  "$defs": {
+    "ColumnProfile": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "dtype": {
+          "title": "Dtype",
+          "type": "string"
+        },
+        "non_null": {
+          "title": "Non Null",
+          "type": "integer"
+        },
+        "nulls": {
+          "title": "Nulls",
+          "type": "integer"
+        },
+        "zeros": {
+          "title": "Zeros",
+          "type": "integer"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "mean": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mean"
+        }
+      },
+      "required": [
+        "name",
+        "dtype",
+        "non_null",
+        "nulls",
+        "zeros"
+      ],
+      "title": "ColumnProfile",
+      "type": "object"
+    },
+    "Freshness": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "max_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Max Date"
+        },
+        "as_of": {
+          "format": "date",
+          "title": "As Of",
+          "type": "string"
+        },
+        "lag_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lag Days"
+        },
+        "refresh_cadence": {
+          "title": "Refresh Cadence",
+          "type": "string"
+        },
+        "is_stale": {
+          "title": "Is Stale",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source_id",
+        "max_date",
+        "as_of",
+        "lag_days",
+        "refresh_cadence",
+        "is_stale"
+      ],
+      "title": "Freshness",
+      "type": "object"
+    },
+    "GrainCoverage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Keys",
+          "type": "array"
+        },
+        "n_slices": {
+          "title": "N Slices",
+          "type": "integer"
+        },
+        "filled_cells": {
+          "title": "Filled Cells",
+          "type": "integer"
+        },
+        "possible_cells": {
+          "title": "Possible Cells",
+          "type": "integer"
+        },
+        "mean_rows_per_cell": {
+          "title": "Mean Rows Per Cell",
+          "type": "number"
+        },
+        "sufficient": {
+          "title": "Sufficient",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "keys",
+        "n_slices",
+        "filled_cells",
+        "possible_cells",
+        "mean_rows_per_cell",
+        "sufficient"
+      ],
+      "title": "GrainCoverage",
+      "type": "object"
+    },
+    "IdentityFinding": {
+      "additionalProperties": false,
+      "description": "A column that is exactly reproducible from others.\n\nAnything listed here is barred from acting as an independent driver: a\nregression on a perfectly collinear column produces an arbitrary split of\nthe effect, not an attribution.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "components": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "coefficients": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Coefficients",
+          "type": "array"
+        },
+        "max_abs_residual": {
+          "title": "Max Abs Residual",
+          "type": "number"
+        },
+        "kind": {
+          "enum": [
+            "duplicate",
+            "linear_identity"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "components",
+        "coefficients",
+        "max_abs_residual",
+        "kind"
+      ],
+      "title": "IdentityFinding",
+      "type": "object"
+    },
+    "SourceDescription": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "n_rows": {
+          "title": "N Rows",
+          "type": "integer"
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "dtypes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Dtypes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source_id",
+        "path",
+        "n_rows",
+        "columns",
+        "dtypes"
+      ],
+      "title": "SourceDescription",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "description": {
+      "$ref": "#/$defs/SourceDescription"
+    },
+    "freshness": {
+      "$ref": "#/$defs/Freshness"
+    },
+    "columns": {
+      "items": {
+        "$ref": "#/$defs/ColumnProfile"
+      },
+      "title": "Columns",
+      "type": "array"
+    },
+    "duplicate_groups": {
+      "items": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Duplicate Groups",
+      "type": "array"
+    },
+    "identities": {
+      "items": {
+        "$ref": "#/$defs/IdentityFinding"
+      },
+      "title": "Identities",
+      "type": "array"
+    },
+    "identity_groups": {
+      "description": "Sets of columns tied by one exact linear constraint. Each such set carries k-1 degrees of freedom, so exactly one member is dropped.",
+      "items": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Identity Groups",
+      "type": "array"
+    },
+    "redundant_columns": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "column -> why it is barred as an independent driver.",
+      "title": "Redundant Columns",
+      "type": "object"
+    },
+    "coverage": {
+      "items": {
+        "$ref": "#/$defs/GrainCoverage"
+      },
+      "title": "Coverage",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source_id",
+    "generated_at",
+    "description",
+    "freshness",
+    "columns",
+    "duplicate_groups",
+    "identities",
+    "coverage"
+  ],
+  "title": "DataProfile",
+  "type": "object"
+}

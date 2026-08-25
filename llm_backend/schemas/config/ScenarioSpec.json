@@ -1,0 +1,158 @@
+{
+  "$defs": {
+    "ColumnOp": {
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "multiply",
+            "add",
+            "set"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "op",
+        "value"
+      ],
+      "title": "ColumnOp",
+      "type": "object"
+    },
+    "EventWindowSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "format": "date",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "format": "date",
+          "title": "End",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "EventWindowSpec",
+      "type": "object"
+    },
+    "InjectedEvent": {
+      "additionalProperties": false,
+      "description": "One synthetic movement stamped onto the base data, with its truth recorded.",
+      "properties": {
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "target_columns": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ColumnOp"
+          },
+          "title": "Target Columns",
+          "type": "object"
+        },
+        "filters": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Dimension value filters; empty means all rows.",
+          "title": "Filters",
+          "type": "object"
+        },
+        "window": {
+          "$ref": "#/$defs/EventWindowSpec"
+        },
+        "shape": {
+          "default": "step",
+          "enum": [
+            "step",
+            "ramp",
+            "spike",
+            "decay"
+          ],
+          "title": "Shape",
+          "type": "string"
+        },
+        "propagate": {
+          "default": true,
+          "description": "Re-derive dependent columns through the accounting identities so the mutated dataset stays internally consistent.",
+          "title": "Propagate",
+          "type": "boolean"
+        },
+        "affected_kpis": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Kpis",
+          "type": "array"
+        },
+        "true_drivers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "True Drivers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "event_id",
+        "target_columns",
+        "window"
+      ],
+      "title": "InjectedEvent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "scenario_id": {
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "base_source_id": {
+      "title": "Base Source Id",
+      "type": "string"
+    },
+    "seed": {
+      "default": 42,
+      "title": "Seed",
+      "type": "integer"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/InjectedEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    }
+  },
+  "required": [
+    "scenario_id",
+    "base_source_id",
+    "events"
+  ],
+  "title": "ScenarioSpec",
+  "type": "object"
+}

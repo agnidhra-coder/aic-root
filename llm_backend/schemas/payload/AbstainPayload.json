@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "description": "Emitted instead of a finding when evidence is insufficient or contradictory.",
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Event Id"
+    },
+    "kpi": {
+      "title": "Kpi",
+      "type": "string"
+    },
+    "reason_code": {
+      "enum": [
+        "insufficient_support",
+        "insufficient_history",
+        "failed_parallel_trends",
+        "contradictory_methods",
+        "below_confidence_threshold",
+        "no_valid_covariates"
+      ],
+      "title": "Reason Code",
+      "type": "string"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "missing_evidence": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Evidence",
+      "type": "array"
+    },
+    "what_would_resolve_it": {
+      "items": {
+        "type": "string"
+      },
+      "title": "What Would Resolve It",
+      "type": "array"
+    }
+  },
+  "required": [
+    "event_id",
+    "kpi",
+    "reason_code",
+    "message"
+  ],
+  "title": "AbstainPayload",
+  "type": "object"
+}

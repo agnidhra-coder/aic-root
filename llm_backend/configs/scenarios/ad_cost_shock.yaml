@@ -1,0 +1,60 @@
+# Ground-truth scenario.
+#
+# The supplied dataset is flat: constant monthly KPI means across 24 months,
+# lag-1 autocorrelation 0.01, no weekday effect. Nothing real to detect and no
+# causal effect to recover. These events manufacture movements whose cause is
+# known exactly, so detection can be scored and attribution can be checked
+# against an analytic answer.
+scenario_id: ad_cost_shock_v1
+description: >
+  A paid-search bidding war localised to one region, followed by a system-wide
+  supplier cost increase. The first has clean control slices; the second does not.
+base_source_id: retail_daily
+seed: 42
+
+events:
+  # Multi-factor and localised. CAC rises from BOTH sides of its ratio -- spend up
+  # and acquisitions down -- which is the case a naive "what moved most" heuristic
+  # gets wrong and LMDI decomposes exactly:
+  #   dln(CAC) = ln(1.15) - ln(0.80) = 0.1398 + 0.2231 = 0.3629
+  #   => spend contributes 38.5%, new customers 61.5%
+  # Unaffected regions and traffic sources remain as donor controls, so the causal
+  # router should reach for DiD here.
+  # Treatment covers the whole West region rather than one traffic source inside it.
+  # The panel is sampled, not dense: West x Paid Search is about one row per day, so
+  # an effect confined there would be ~3% of total rows and invisible at every grain
+  # coarse enough to model. Treating the region entirely leaves the other four as
+  # clean donor controls, which is exactly the structure DiD needs.
+  - event_id: EV-ADS-001
+    description: >
+      Paid-search bidding war across the West region. Ad costs jump 45%, marketing
+      spend rises 15% chasing the auction, and acquisitions fall 20% as reach drops.
+    target_columns:
+      Cost Of Ads: {op: multiply, value: 1.45}
+      Sales Marketing Expenses: {op: multiply, value: 1.15}
+      New Customers: {op: multiply, value: 0.80}
+    filters:
+      Region: [West]
+    window: {start: 2026-03-14, end: 2026-04-03}
+    shape: step
+    propagate: true
+    affected_kpis: [ROAS, CAC]
+    true_drivers: [Cost Of Ads, Sales Marketing Expenses, New Customers]
+
+  # System-wide, so no untreated slice exists to act as a control. The router must
+  # reject DiD for want of donors and fall back to ITS against the pre-period.
+  # Ramped rather than stepped, so change-point detection has to find an onset
+  # rather than a cliff edge.
+  - event_id: EV-COGS-002
+    description: >
+      Supplier cost increase across every region and channel. Cost of goods and
+      total operating expense climb together, compressing net margin.
+    target_columns:
+      COGS: {op: multiply, value: 1.10}
+      Total Expenses: {op: multiply, value: 1.08}
+    filters: {}
+    window: {start: 2026-08-10, end: 2026-09-07}
+    shape: ramp
+    propagate: true
+    affected_kpis: [Net Profit Margin]
+    true_drivers: [Total Expenses, COGS]

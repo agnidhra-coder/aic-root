@@ -1,0 +1,13 @@
+# The second source, at a different grain and cadence from the sales file.
+#
+# The sales file is daily and carries no supplier dimension; this is weekly and
+# is keyed by supplier. That mismatch is deliberate -- reconciling grains and
+# cadences is part of the problem, and a second source that joined cleanly on a
+# shared key would not exercise it.
+source_id: scm_weekly
+type: csv
+path: data/generated/scm_weekly_v1.csv
+date_column: Week Start
+entity_columns: [Region, Product category, Supplier]
+refresh_cadence: weekly
+as_of: 2027-01-01

@@ -1,0 +1,240 @@
+{
+  "$defs": {
+    "Lineage": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_id": {
+          "title": "Source Id",
+          "type": "string"
+        },
+        "source_path": {
+          "title": "Source Path",
+          "type": "string"
+        },
+        "contract_id": {
+          "title": "Contract Id",
+          "type": "string"
+        },
+        "kpi": {
+          "title": "Kpi",
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "time_grain": {
+          "title": "Time Grain",
+          "type": "string"
+        },
+        "entity_filter": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Entity Filter",
+          "type": "object"
+        }
+      },
+      "required": [
+        "source_id",
+        "source_path",
+        "contract_id",
+        "kpi",
+        "columns",
+        "time_grain"
+      ],
+      "title": "Lineage",
+      "type": "object"
+    },
+    "ObservedDeviation": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "kpi": {
+          "title": "Kpi",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected"
+        },
+        "actual": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Actual"
+        },
+        "abs_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Abs Delta"
+        },
+        "pct_delta": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pct Delta"
+        },
+        "material": {
+          "title": "Material",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kpi",
+        "expected",
+        "actual",
+        "abs_delta",
+        "pct_delta",
+        "material"
+      ],
+      "title": "ObservedDeviation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Contiguous flags clustered into one reportable event.",
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "anomaly_types": {
+      "items": {
+        "enum": [
+          "Point Deviation",
+          "Sustained Trend Drift",
+          "Structural Break",
+          "Multivariate Divergence"
+        ],
+        "type": "string"
+      },
+      "title": "Anomaly Types",
+      "type": "array"
+    },
+    "detectors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Detectors",
+      "type": "array"
+    },
+    "window_start": {
+      "format": "date",
+      "title": "Window Start",
+      "type": "string"
+    },
+    "window_end": {
+      "format": "date",
+      "title": "Window End",
+      "type": "string"
+    },
+    "entity": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Entity",
+      "type": "object"
+    },
+    "primary_kpis_affected": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Primary Kpis Affected",
+      "type": "array"
+    },
+    "observed_deviations": {
+      "items": {
+        "$ref": "#/$defs/ObservedDeviation"
+      },
+      "title": "Observed Deviations",
+      "type": "array"
+    },
+    "candidate_covariates": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Candidate Covariates",
+      "type": "array"
+    },
+    "excluded_covariates": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "covariate -> reason it was barred (collinearity, etc).",
+      "title": "Excluded Covariates",
+      "type": "object"
+    },
+    "peak_score": {
+      "title": "Peak Score",
+      "type": "number"
+    },
+    "n_flags": {
+      "title": "N Flags",
+      "type": "integer"
+    },
+    "min_support": {
+      "title": "Min Support",
+      "type": "integer"
+    },
+    "lineage": {
+      "$ref": "#/$defs/Lineage"
+    }
+  },
+  "required": [
+    "event_id",
+    "anomaly_types",
+    "detectors",
+    "window_start",
+    "window_end",
+    "primary_kpis_affected",
+    "observed_deviations",
+    "candidate_covariates",
+    "peak_score",
+    "n_flags",
+    "min_support",
+    "lineage"
+  ],
+  "title": "EventWindow",
+  "type": "object"
+}

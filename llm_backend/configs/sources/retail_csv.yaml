@@ -1,0 +1,15 @@
+# Physical binding only. Swapping to a warehouse means changing `type` and `path`
+# and writing one adapter class; nothing downstream of sources/ changes.
+source_id: retail_daily
+type: csv
+path: data/raw/dummy_data.csv
+date_column: Date
+entity_columns:
+  - Region
+  - Channel
+  - Product category
+  - Traffic source
+refresh_cadence: daily
+# Data runs to 2026-12-31. Pinning as_of keeps freshness deterministic across runs
+# instead of drifting with the wall clock.
+as_of: 2027-01-01

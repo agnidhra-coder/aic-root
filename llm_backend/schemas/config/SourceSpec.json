@@ -1,0 +1,87 @@
+{
+  "additionalProperties": false,
+  "description": "Binding to one physical dataset. `type` selects the adapter in sources.registry.",
+  "properties": {
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "csv",
+        "excel"
+      ],
+      "title": "Type",
+      "type": "string"
+    },
+    "path": {
+      "title": "Path",
+      "type": "string"
+    },
+    "sheet": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Excel only.",
+      "title": "Sheet"
+    },
+    "date_column": {
+      "default": "Date",
+      "title": "Date Column",
+      "type": "string"
+    },
+    "entity_columns": {
+      "description": "Dimension columns available for slicing (Region, Channel, ...).",
+      "items": {
+        "type": "string"
+      },
+      "title": "Entity Columns",
+      "type": "array"
+    },
+    "refresh_cadence": {
+      "default": "daily",
+      "enum": [
+        "daily",
+        "weekly",
+        "monthly",
+        "unknown"
+      ],
+      "title": "Refresh Cadence",
+      "type": "string"
+    },
+    "as_of": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Treat this as 'now' when computing freshness; None means use file mtime.",
+      "title": "As Of"
+    },
+    "dtype_overrides": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Dtype Overrides",
+      "type": "object"
+    }
+  },
+  "required": [
+    "source_id",
+    "type",
+    "path"
+  ],
+  "title": "SourceSpec",
+  "type": "object"
+}

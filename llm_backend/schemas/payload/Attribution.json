@@ -1,0 +1,230 @@
+{
+  "$defs": {
+    "Contribution": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "driver": {
+          "title": "Driver",
+          "type": "string"
+        },
+        "contribution": {
+          "description": "In the KPI's own units unless stated otherwise.",
+          "title": "Contribution",
+          "type": "number"
+        },
+        "share": {
+          "description": "Signed fraction of the total explained movement.",
+          "title": "Share",
+          "type": "number"
+        },
+        "method": {
+          "enum": [
+            "algebraic_lmdi",
+            "mix_decomposition",
+            "did",
+            "its",
+            "dml",
+            "none"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "exact": {
+          "description": "True when derived algebraically rather than estimated.",
+          "title": "Exact",
+          "type": "boolean"
+        },
+        "std_error": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Std Error"
+        },
+        "ci_low": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci Low"
+        },
+        "ci_high": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ci High"
+        },
+        "controllable": {
+          "default": false,
+          "title": "Controllable",
+          "type": "boolean"
+        },
+        "owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner"
+        }
+      },
+      "required": [
+        "driver",
+        "contribution",
+        "share",
+        "method",
+        "exact"
+      ],
+      "title": "Contribution",
+      "type": "object"
+    },
+    "MethodChoice": {
+      "additionalProperties": false,
+      "description": "Why one causal method was used and the others were not \u2014 evidence in its own right.",
+      "properties": {
+        "schema_version": {
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "chosen": {
+          "enum": [
+            "algebraic_lmdi",
+            "mix_decomposition",
+            "did",
+            "its",
+            "dml",
+            "none"
+          ],
+          "title": "Chosen",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "considered": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "method -> why it was rejected.",
+          "title": "Considered",
+          "type": "object"
+        },
+        "preconditions_checked": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "title": "Preconditions Checked",
+          "type": "object"
+        }
+      },
+      "required": [
+        "chosen",
+        "reason"
+      ],
+      "title": "MethodChoice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "event_id": {
+      "title": "Event Id",
+      "type": "string"
+    },
+    "kpi": {
+      "title": "Kpi",
+      "type": "string"
+    },
+    "total_delta": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Total Delta"
+    },
+    "explained_delta": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Explained Delta"
+    },
+    "residual_delta": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Residual Delta"
+    },
+    "method_choice": {
+      "$ref": "#/$defs/MethodChoice"
+    },
+    "contributions": {
+      "items": {
+        "$ref": "#/$defs/Contribution"
+      },
+      "title": "Contributions",
+      "type": "array"
+    },
+    "diagnostics": {
+      "additionalProperties": true,
+      "title": "Diagnostics",
+      "type": "object"
+    }
+  },
+  "required": [
+    "event_id",
+    "kpi",
+    "total_delta",
+    "explained_delta",
+    "residual_delta",
+    "method_choice",
+    "contributions"
+  ],
+  "title": "Attribution",
+  "type": "object"
+}
