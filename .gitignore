@@ -6,3 +6,15 @@ docs/
 # misc
 .DS_Store
 *.pem
+
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+outputs/
+data/generated/
+.env
+.env.*
+.vscode/
+!llm_backend/docs

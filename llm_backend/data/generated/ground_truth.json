@@ -1,0 +1,98 @@
+{
+  "scenario_id": "ad_cost_shock_v1",
+  "description": "A paid-search bidding war localised to one region, followed by a system-wide supplier cost increase. The first has clean control slices; the second does not.\n",
+  "base_source_id": "retail_daily",
+  "generated_at": "2026-08-23T23:54:22.937370",
+  "seed": 42,
+  "n_rows": 20000,
+  "events": [
+    {
+      "event_id": "EV-ADS-001",
+      "description": "Paid-search bidding war across the West region. Ad costs jump 45%, marketing spend rises 15% chasing the auction, and acquisitions fall 20% as reach drops.\n",
+      "window": {
+        "start": "2026-03-14",
+        "end": "2026-04-03"
+      },
+      "shape": "step",
+      "filters": {
+        "Region": [
+          "West"
+        ]
+      },
+      "rows_affected": 116,
+      "column_changes": {
+        "Cost Of Ads": {
+          "op": "multiply",
+          "value": 1.45,
+          "mean_before": 4368.719051724138,
+          "mean_after": 6334.6426249999995,
+          "mean_pct_change": 44.99999999999999
+        },
+        "Sales Marketing Expenses": {
+          "op": "multiply",
+          "value": 1.15,
+          "mean_before": 7750.994310344826,
+          "mean_after": 8913.64345689655,
+          "mean_pct_change": 15.000000000000014
+        },
+        "New Customers": {
+          "op": "multiply",
+          "value": 0.8,
+          "mean_before": 274.86206896551727,
+          "mean_after": 219.9051724137931,
+          "mean_pct_change": -19.994354535190062
+        }
+      },
+      "propagation": [
+        "Start Customers := +End Customers -New Customers +Customers Lost (identity restored)"
+      ],
+      "affected_kpis": [
+        "ROAS",
+        "CAC"
+      ],
+      "true_drivers": [
+        "Cost Of Ads",
+        "Sales Marketing Expenses",
+        "New Customers"
+      ]
+    },
+    {
+      "event_id": "EV-COGS-002",
+      "description": "Supplier cost increase across every region and channel. Cost of goods and total operating expense climb together, compressing net margin.\n",
+      "window": {
+        "start": "2026-08-10",
+        "end": "2026-09-07"
+      },
+      "shape": "ramp",
+      "filters": {},
+      "rows_affected": 783,
+      "column_changes": {
+        "COGS": {
+          "op": "multiply",
+          "value": 1.1,
+          "mean_before": 56308.685223499364,
+          "mean_after": 59242.43595371472,
+          "mean_pct_change": 5.210121171486715
+        },
+        "Total Expenses": {
+          "op": "multiply",
+          "value": 1.08,
+          "mean_before": 73034.12183908046,
+          "mean_after": 76091.47959297134,
+          "mean_pct_change": 4.1862045806853265
+        }
+      },
+      "propagation": [
+        "Total Gross Profit := +Net Sales -COGS (identity restored)"
+      ],
+      "affected_kpis": [
+        "Net Profit Margin"
+      ],
+      "true_drivers": [
+        "Total Expenses",
+        "COGS"
+      ]
+    }
+  ],
+  "dataset_path": "data/generated/ad_cost_shock_v1.csv"
+}

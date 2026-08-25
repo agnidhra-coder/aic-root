@@ -1,0 +1,910 @@
+<title>KPI Engine Architecture</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#F6F8F5; --surface:#FFFFFF; --surface-2:#EEF2ED;
+  --text:#1B211D; --text-dim:#5B665F; --text-faint:#8A948C;
+  --border:#DCE4DD; --border-soft:#E9EFE7;
+  --accent:#2B6E5F; --accent-soft:#E1EEE9; --accent-strong:#1D5347;
+  --exact:#2B6E5F; --exact-soft:#E1EEE9;
+  --estimated:#B5762A; --estimated-soft:#F4E7D3;
+  --llm:#5E5AA8; --llm-soft:#E7E5F5;
+  --code-bg:#EEF1EC; --code-border:#DCE4DD;
+  --shadow: 0 1px 2px rgba(27,33,29,0.05), 0 4px 16px rgba(27,33,29,0.04);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#12161A; --surface:#181D22; --surface-2:#1E242A;
+    --text:#E6EBE5; --text-dim:#9BA69E; --text-faint:#6C776F;
+    --border:#2A3138; --border-soft:#232A30;
+    --accent:#5FBFA6; --accent-soft:#1B2C28; --accent-strong:#7FD4BB;
+    --exact:#5FBFA6; --exact-soft:#1B2C28;
+    --estimated:#E0A857; --estimated-soft:#2E2619;
+    --llm:#9C97D9; --llm-soft:#221F35;
+    --code-bg:#1C2228; --code-border:#2A3138;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 20px rgba(0,0,0,0.25);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12161A; --surface:#181D22; --surface-2:#1E242A;
+  --text:#E6EBE5; --text-dim:#9BA69E; --text-faint:#6C776F;
+  --border:#2A3138; --border-soft:#232A30;
+  --accent:#5FBFA6; --accent-soft:#1B2C28; --accent-strong:#7FD4BB;
+  --exact:#5FBFA6; --exact-soft:#1B2C28;
+  --estimated:#E0A857; --estimated-soft:#2E2619;
+  --llm:#9C97D9; --llm-soft:#221F35;
+  --code-bg:#1C2228; --code-border:#2A3138;
+  --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 20px rgba(0,0,0,0.25);
+}
+
+*{box-sizing:border-box;}
+body{
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:'IBM Plex Serif', Georgia, serif;
+  font-size:16px; line-height:1.65;
+}
+::selection{background:var(--accent-soft); color:var(--text);}
+a{color:var(--accent); text-decoration:none; border-bottom:1px solid var(--accent-soft);}
+a:hover{border-bottom-color:var(--accent);}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px;}
+
+h1,h2,h3,h4{
+  font-family:'IBM Plex Sans', system-ui, sans-serif;
+  color:var(--text); text-wrap:balance; font-weight:600;
+  margin:0 0 .5em 0;
+}
+code, .mono, .flag, .sig, table td.code{
+  font-family:'IBM Plex Mono', ui-monospace, monospace;
+}
+
+/* ---------- shell layout ---------- */
+.shell{display:flex; max-width:1400px; margin:0 auto;}
+
+.toc{
+  position:sticky; top:0; align-self:flex-start; height:100vh;
+  width:272px; flex:0 0 272px; overflow-y:auto;
+  padding:28px 18px 40px 28px; border-right:1px solid var(--border);
+  background:var(--bg);
+}
+.toc::-webkit-scrollbar{width:8px;}
+.toc::-webkit-scrollbar-thumb{background:var(--border); border-radius:8px;}
+.toc-brand{
+  font-family:'IBM Plex Sans'; font-weight:700; font-size:.95rem;
+  letter-spacing:.02em; margin-bottom:2px;
+}
+.toc-sub{
+  font-size:.75rem; color:var(--text-faint); margin-bottom:22px;
+  font-family:'IBM Plex Mono';
+}
+.toc nav{display:flex; flex-direction:column; gap:1px;}
+.toc-group{
+  font-family:'IBM Plex Sans'; font-size:.68rem; font-weight:600;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--text-faint);
+  margin:16px 0 6px 0;
+}
+.toc-group:first-child{margin-top:0;}
+.toc a{
+  display:block; border-bottom:none; color:var(--text-dim);
+  font-size:.86rem; padding:5px 8px; border-radius:6px;
+  font-family:'IBM Plex Sans'; font-weight:500;
+}
+.toc a:hover{background:var(--surface-2); color:var(--text);}
+.toc a.mod{color:var(--text-faint); font-weight:400; font-size:.82rem; padding-left:16px;}
+
+main{flex:1 1 auto; min-width:0; padding:56px 56px 120px 56px; max-width:980px;}
+
+/* ---------- hero ---------- */
+.hero{margin-bottom:64px;}
+.eyebrow{
+  font-family:'IBM Plex Mono'; font-size:.78rem; color:var(--accent);
+  letter-spacing:.06em; text-transform:uppercase; margin-bottom:14px;
+}
+h1.title{font-size:2.6rem; line-height:1.08; max-width:16ch;}
+.dek{
+  font-size:1.15rem; color:var(--text-dim); max-width:62ch; margin-top:16px;
+  font-family:'IBM Plex Serif';
+}
+.hero-stats{display:flex; gap:28px; margin-top:32px; flex-wrap:wrap;}
+.stat{font-family:'IBM Plex Sans';}
+.stat .n{font-size:1.5rem; font-weight:700; color:var(--accent-strong);}
+.stat .l{font-size:.72rem; color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em;}
+
+/* ---------- sections ---------- */
+section{margin-bottom:76px; scroll-margin-top:24px;}
+section > h2{
+  font-size:1.5rem; padding-bottom:14px; margin-bottom:24px;
+  border-bottom:1px solid var(--border);
+}
+section > h2 .num{color:var(--text-faint); font-weight:500; margin-right:10px;}
+h3{font-size:1.15rem; margin-top:36px; scroll-margin-top:24px;}
+h3 .modname{font-family:'IBM Plex Mono'; font-weight:600; font-size:1.05rem;}
+h4{font-size:.95rem; margin-top:22px; color:var(--text-dim); font-family:'IBM Plex Mono'; font-weight:600;}
+p{max-width:70ch; margin:0 0 1em 0;}
+p.tight{margin-bottom:.4em;}
+ul,ol{max-width:68ch; padding-left:1.3em;}
+li{margin-bottom:.35em;}
+
+.lede{font-size:1.02rem; color:var(--text-dim); max-width:68ch;}
+
+/* ---------- module card ---------- */
+.mod-card{
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:22px 24px; margin:18px 0; box-shadow:var(--shadow);
+}
+.mod-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px;}
+.mod-path{font-family:'IBM Plex Mono'; font-weight:600; font-size:.98rem; color:var(--text);}
+.mod-purpose{color:var(--text-dim); font-size:.92rem; font-family:'IBM Plex Sans';}
+.func-list{margin-top:14px; border-top:1px solid var(--border-soft); padding-top:12px;}
+.func{margin-bottom:12px;}
+.func:last-child{margin-bottom:0;}
+.sig{
+  display:block; font-size:.86rem; color:var(--accent-strong); font-weight:500;
+  background:var(--code-bg); border:1px solid var(--code-border); border-radius:6px;
+  padding:6px 10px; overflow-x:auto; white-space:pre;
+}
+.func-note{font-size:.87rem; color:var(--text-dim); margin-top:4px; font-family:'IBM Plex Sans';}
+
+/* ---------- schema table ---------- */
+.table-wrap{overflow-x:auto; margin:14px 0 22px 0; border:1px solid var(--border); border-radius:10px;}
+table{border-collapse:collapse; width:100%; min-width:560px; font-size:.88rem;}
+th{
+  font-family:'IBM Plex Sans'; font-weight:600; font-size:.72rem;
+  text-transform:uppercase; letter-spacing:.05em; color:var(--text-faint);
+  text-align:left; padding:10px 14px; background:var(--surface-2);
+  border-bottom:1px solid var(--border); position:sticky; top:0;
+}
+td{padding:9px 14px; border-bottom:1px solid var(--border-soft); vertical-align:top;}
+tr:last-child td{border-bottom:none;}
+td.code{font-size:.84rem; color:var(--accent-strong); white-space:nowrap;}
+td.flag{font-size:.82rem;}
+
+/* ---------- schema block (pydantic model) ---------- */
+.schema{
+  background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:16px 18px; margin:14px 0;
+}
+.schema-name{font-family:'IBM Plex Mono'; font-weight:600; color:var(--accent-strong); font-size:.95rem;}
+.schema-fields{font-family:'IBM Plex Mono'; font-size:.83rem; color:var(--text-dim); margin-top:8px; line-height:1.8; word-break:break-word;}
+.fname{color:var(--text);}
+.ftype{color:var(--text-faint);}
+
+/* ---------- pills / badges ---------- */
+.pill{
+  display:inline-flex; align-items:center; gap:5px;
+  font-family:'IBM Plex Sans'; font-size:.72rem; font-weight:600;
+  padding:3px 9px; border-radius:99px; letter-spacing:.02em;
+}
+.pill.exact{background:var(--exact-soft); color:var(--exact);}
+.pill.estimated{background:var(--estimated-soft); color:var(--estimated);}
+.pill.llm{background:var(--llm-soft); color:var(--llm);}
+.pill-row{display:flex; gap:8px; margin:10px 0 18px 0; flex-wrap:wrap;}
+
+/* ---------- callout ---------- */
+.callout{
+  border-left:3px solid var(--accent); background:var(--accent-soft);
+  border-radius:0 8px 8px 0; padding:14px 18px; margin:18px 0; max-width:68ch;
+}
+.callout p{margin:0; font-size:.93rem;}
+.callout.warn{border-left-color:var(--estimated); background:var(--estimated-soft);}
+.callout .k{font-family:'IBM Plex Sans'; font-weight:700; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; display:block; margin-bottom:4px; color:var(--text-dim);}
+
+/* ---------- flow diagram (mermaid) ---------- */
+.diagram-wrap{
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  padding:24px; margin:20px 0; overflow-x:auto; box-shadow:var(--shadow);
+}
+
+/* ---------- pipeline stage strip ---------- */
+.stage-strip{display:flex; flex-wrap:wrap; gap:8px; margin:20px 0 28px 0; align-items:center;}
+.stage{
+  font-family:'IBM Plex Mono'; font-size:.8rem; font-weight:600;
+  background:var(--surface-2); border:1px solid var(--border);
+  padding:7px 12px; border-radius:7px; color:var(--text);
+}
+.stage-arrow{color:var(--text-faint); font-size:.9rem;}
+
+footer{
+  max-width:70ch; padding-top:32px; margin-top:20px; border-top:1px solid var(--border);
+  font-family:'IBM Plex Sans'; font-size:.82rem; color:var(--text-faint);
+}
+
+@media (max-width: 900px){
+  .toc{display:none;}
+  main{padding:40px 24px 100px 24px;}
+  h1.title{font-size:2rem;}
+}
+</style>
+
+<div class="shell">
+  <aside class="toc">
+    <div class="toc-brand">KPI Engine</div>
+    <div class="toc-sub">architecture reference</div>
+    <nav>
+      <a href="#overview">Overview</a>
+      <a href="#data-flow">Data flow</a>
+
+      <div class="toc-group">kpi_engine</div>
+      <a href="#contracts" class="mod">contracts/</a>
+      <a href="#sources" class="mod">sources/</a>
+      <a href="#profiling" class="mod">profiling/</a>
+      <a href="#semantics" class="mod">semantics/</a>
+      <a href="#eda" class="mod">eda/</a>
+      <a href="#detection" class="mod">detection/</a>
+      <a href="#causal" class="mod">causal/</a>
+      <a href="#evidence" class="mod">evidence/</a>
+      <a href="#pipeline" class="mod">pipeline.py</a>
+      <a href="#cli" class="mod">cli/</a>
+
+      <div class="toc-group">kpi_agent</div>
+      <a href="#agent-overview">How it's wired</a>
+      <a href="#agent-modules" class="mod">module reference</a>
+      <a href="#llm-layer">The LLM layer</a>
+      <a href="#langgraph">LangGraph pipeline</a>
+
+      <div class="toc-group">Reference</div>
+      <a href="#dependencies">Dependencies</a>
+      <a href="#configs">Configs</a>
+    </nav>
+  </aside>
+
+  <main>
+    <div class="hero">
+      <div class="eyebrow">Architecture reference</div>
+      <h1 class="title">KPI Engine &amp; Agent</h1>
+      <p class="dek">A deterministic KPI attribution engine, and a LangGraph
+      layer that narrates its output — module by module, function by
+      function, schema by schema.</p>
+      <div class="hero-stats">
+        <div class="stat"><div class="n">2</div><div class="l">packages</div></div>
+        <div class="stat"><div class="n">9</div><div class="l">engine stages</div></div>
+        <div class="stat"><div class="n">12</div><div class="l">graph nodes</div></div>
+        <div class="stat"><div class="n">2</div><div class="l">model calls, ever</div></div>
+        <div class="stat"><div class="n">0</div><div class="l">LLM code in kpi_engine</div></div>
+      </div>
+    </div>
+
+    <section id="overview">
+      <h2><span class="num">01</span>Overview</h2>
+      <p class="lede">The repository is two packages with a hard boundary
+      between them. <code>kpi_engine</code> is the deterministic core: it
+      detects material KPI movements, attributes them to drivers, and emits
+      structured evidence. No LLM appears anywhere inside it — that's
+      deliberate. <code>kpi_agent</code> is the LangGraph layer on top. It
+      calls a model exactly twice — once to turn a plain-language question
+      into a validated pipeline configuration, once to write prose — and
+      never to produce a quantity. Everything between those two calls is
+      <code>kpi_engine</code>, untouched.</p>
+
+      <p>The engine runs as one stage chain, each stage independently
+      runnable via its own CLI script, or all at once through
+      <code>pipeline.run_pipeline</code>:</p>
+
+      <div class="stage-strip">
+        <span class="stage">profile</span><span class="stage-arrow">→</span>
+        <span class="stage">panel</span><span class="stage-arrow">→</span>
+        <span class="stage">EDA</span><span class="stage-arrow">→</span>
+        <span class="stage">detect</span><span class="stage-arrow">→</span>
+        <span class="stage">window</span><span class="stage-arrow">→</span>
+        <span class="stage">attribute</span><span class="stage-arrow">→</span>
+        <span class="stage">evidence</span><span class="stage-arrow">→</span>
+        <span class="stage">evaluate</span>
+      </div>
+
+      <div class="pill-row">
+        <span class="pill exact">exact</span><span style="font-family:'IBM Plex Sans'; font-size:.85rem; color:var(--text-dim);">algebra over the KPI's own definition — Shapley, LMDI. Sums to the total, no assumptions.</span>
+      </div>
+      <div class="pill-row" style="margin-top:-14px;">
+        <span class="pill estimated">estimated</span><span style="font-family:'IBM Plex Sans'; font-size:.85rem; color:var(--text-dim);">quasi-experimental methods on an upstream driver — DiD, ITS, DML. Never presented as exact.</span>
+      </div>
+      <div class="pill-row" style="margin-top:-14px;">
+        <span class="pill llm">llm-touched</span><span style="font-family:'IBM Plex Sans'; font-size:.85rem; color:var(--text-dim);">chooses the analysis configuration or writes prose. Never computes a number.</span>
+      </div>
+    </section>
+
+    <section id="data-flow">
+      <h2><span class="num">02</span>Data flow, stage by stage</h2>
+      <div class="table-wrap">
+      <table>
+        <tr><th>Stage</th><th>Reads</th><th>Writes</th><th>Entry point</th></tr>
+        <tr><td>0 · profile</td><td class="code">raw CSV/Excel</td><td class="code">outputs/profiles/&lt;source_id&gt;.json</td><td class="code">profiling.profiler.profile_source</td></tr>
+        <tr><td>0b · inject (optional)</td><td class="code">base source + ScenarioSpec</td><td class="code">data/generated/&lt;scenario&gt;_v1.csv + ground_truth.json</td><td class="code">cli.inject_scenario</td></tr>
+        <tr><td>1 · panel</td><td class="code">raw rows + KpiContract</td><td class="code">outputs/&lt;run_id&gt;/kpi_panel.parquet</td><td class="code">semantics.panel.build_panel</td></tr>
+        <tr><td>1b · EDA (optional)</td><td class="code">KpiPanel</td><td class="code">series_profiles.json</td><td class="code">eda.runner.profile_panel</td></tr>
+        <tr><td>2 · detect</td><td class="code">KpiPanel + DetectionSpec</td><td class="code">flags.json, events.json</td><td class="code">detection.runner.run_detection</td></tr>
+        <tr><td>3 · attribute</td><td class="code">EventWindow + CausalGraph</td><td class="code">attributions.json, evidence_bundles.json</td><td class="code">causal.router.route_and_attribute</td></tr>
+        <tr><td>4 · evaluate</td><td class="code">evidence + ground_truth.json</td><td class="code">evaluation.json</td><td class="code">cli.evaluate</td></tr>
+        <tr><td>agent · ask</td><td class="code">both sources + question</td><td class="code">agent_report.md / .json</td><td class="code">kpi_agent.graph.run_agent</td></tr>
+      </table>
+      </div>
+    </section>
+
+    <!-- ================= kpi_engine ================= -->
+    <section id="contracts">
+      <h2><span class="num">03</span><code>kpi_engine.contracts</code></h2>
+      <p class="lede">Every config and payload in the system is a Pydantic
+      model with <code>extra="forbid"</code>. Nothing downstream reads a raw
+      dict — an invalid config fails before any computation runs.</p>
+
+      <h3><span class="modname">configs.py</span> — config models</h3>
+      <p class="func-note">Validated <em>inputs</em>: what a human or an LLM writes to configure a run.</p>
+
+      <div class="schema">
+        <div class="schema-name">SourceSpec</div>
+        <div class="schema-fields">
+          <span class="fname">source_id</span>: <span class="ftype">str</span> ·
+          <span class="fname">type</span>: <span class="ftype">"csv"|"excel"</span> ·
+          <span class="fname">path</span>: <span class="ftype">str</span> ·
+          <span class="fname">sheet</span>: <span class="ftype">str|None</span> ·
+          <span class="fname">date_column</span>: <span class="ftype">str="Date"</span> ·
+          <span class="fname">entity_columns</span>: <span class="ftype">list[str]</span> ·
+          <span class="fname">refresh_cadence</span>: <span class="ftype">daily|weekly|monthly|unknown</span> ·
+          <span class="fname">as_of</span>: <span class="ftype">date|None</span> ·
+          <span class="fname">dtype_overrides</span>: <span class="ftype">dict[str,str]</span>
+        </div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">KpiDef</div>
+        <div class="schema-fields">
+          <span class="fname">name, category, description</span> ·
+          <span class="fname">measures</span>: <span class="ftype">dict[str, MeasureDef]</span> —
+          each <span class="ftype">{column, agg}</span> ·
+          <span class="fname">expression</span>: <span class="ftype">str</span> (parsed AST, never eval'd) ·
+          <span class="fname">unit</span>: <span class="ftype">Literal[...]</span> ·
+          <span class="fname">direction</span>: <span class="ftype">Direction</span> ·
+          <span class="fname">drivers</span>: <span class="ftype">list[str]</span> ·
+          <span class="fname">materiality</span>: <span class="ftype">{min_abs_pct=5.0, min_business_impact=0.0}</span> ·
+          <span class="fname">guards</span>: <span class="ftype">{denominator_zero, min_rows_per_cell=5, min_history_periods=28, clip_quantiles}</span>
+        </div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">KpiContract</div>
+        <div class="schema-fields">
+          <span class="fname">contract_id, source_id</span> ·
+          <span class="fname">time_grain</span>: <span class="ftype">TimeGrain="day"</span> ·
+          <span class="fname">entity_keys</span>: <span class="ftype">list[str]</span> ·
+          <span class="fname">kpis</span>: <span class="ftype">list[KpiDef]</span> ·
+          <span class="fname">restricted_columns</span>: <span class="ftype">list[str]</span>
+        </div>
+        <div class="func-note">Method <code>.kpi(name) → KpiDef</code>, raises <code>KeyError</code> if unknown.</div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">CausalGraphSpec</div>
+        <div class="schema-fields">
+          <span class="fname">graph_id</span> ·
+          <span class="fname">nodes</span>: <span class="ftype">list[CausalNode]</span> — each
+          <span class="ftype">{name, kind: measure|kpi|external, column, controllable=False, owner, description}</span> ·
+          <span class="fname">edges</span>: <span class="ftype">list[CausalEdge]</span> — each
+          <span class="ftype">{source, target, relation: deterministic|causal, note}</span> ·
+          <span class="fname">forbidden_edges</span>: <span class="ftype">list[tuple[str,str]]</span> (checked at load)
+        </div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">DetectionSpec</div>
+        <div class="schema-fields">
+          <span class="fname">decomposition</span>: <span class="ftype">{enabled, period=7, robust, min_periods_required=3}</span> ·
+          <span class="fname">baseline</span>: <span class="ftype">{model: seasonal_naive|ridge_lags, lags=[1,7,14], rolling_windows=[7,28], min_train_periods=28}</span> ·
+          <span class="fname">point</span>: <span class="ftype">{z_threshold=3.5, mad_floor=1e-9}</span> ·
+          <span class="fname">changepoint</span>: <span class="ftype">{method: pelt|cusum|both, pelt_model, pelt_penalty=10.0, min_segment=14, cusum_k=0.5, cusum_h=5.0}</span> ·
+          <span class="fname">multivariate</span>: <span class="ftype">{alpha=0.001, shrinkage=0.1, min_train_periods=60}</span> ·
+          <span class="fname">windowing</span>: <span class="ftype">{merge_gap=2, min_flags=2, min_detectors=1, require_material=True}</span> ·
+          <span class="fname">confidence_threshold</span>=0.70
+        </div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">EdaSpec &amp; ScenarioSpec</div>
+        <div class="schema-fields">
+          <span class="fname">EdaSpec</span>: <span class="ftype">{decomposition, trend: {alpha=0.05, min_periods=8, flat_slope_pct=0.5, min_total_change_pct=5.0}, segments, min_history=12, seasonality_floor=0.45, outlier_z=3.5}</span><br/>
+          <span class="fname">ScenarioSpec</span>: <span class="ftype">{scenario_id, base_source_id, seed=42, events: list[InjectedEvent]}</span> — each event has
+          <span class="ftype">{target_columns: dict[str, ColumnOp], filters, window: {start,end}, shape: step|ramp|spike|decay, propagate, affected_kpis, true_drivers}</span>
+        </div>
+      </div>
+
+      <h3><span class="modname">payloads.py</span> — output models</h3>
+      <p class="func-note">What each stage <em>emits</em>. The chain from raw data to a narrated claim.</p>
+
+      <div class="schema">
+        <div class="schema-name">DataProfile</div>
+        <div class="schema-fields">
+          <span class="fname">freshness, columns: list[ColumnProfile], duplicate_groups, identities: list[IdentityFinding]</span> ·
+          <span class="fname">redundant_columns</span>: <span class="ftype">dict[str,str]</span> ·
+          <span class="fname">coverage</span>: <span class="ftype">list[GrainCoverage]</span>
+        </div>
+        <div class="func-note">Method <code>.blocked_driver_columns() → set[str]</code> — gates which columns may act as independent causal drivers.</div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">SeriesProfile</div>
+        <div class="schema-fields">
+          <span class="fname">kpi, entity, period_start/end, time_grain</span> ·
+          <span class="fname">trend</span>: <span class="ftype">TrendSummary</span> {direction, slope_per_period, trend_strength, r_squared, p_value, total_change_pct} ·
+          <span class="fname">seasonality</span>: <span class="ftype">SeasonalitySummary</span> {detected, period, strength, peak_label, trough_label} ·
+          <span class="fname">quality</span>: <span class="ftype">DataQualitySummary</span> {n_periods, coverage, longest_gap_periods, volatility_cv, outlier_share} ·
+          <span class="fname">segments</span>: <span class="ftype">list[SeriesSegment]</span> ·
+          <span class="fname">headline</span>: <span class="ftype">str</span> (deterministic template, never LLM) ·
+          <span class="fname">usable, unusable_reason</span>
+        </div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">Flag &amp; EventWindow</div>
+        <div class="schema-fields">
+          <span class="fname">Flag</span>: <span class="ftype">{kpi, entity, period, detector: point|changepoint_pelt|changepoint_cusum|multivariate, anomaly_type, observed/expected/residual, score, threshold, support, direction: up|down|unknown}</span><br/>
+          <span class="fname">EventWindow</span>: <span class="ftype">{event_id, anomaly_types, detectors, window_start/end, entity, primary_kpis_affected, observed_deviations: list[ObservedDeviation], candidate_covariates, excluded_covariates, peak_score, n_flags, min_support, lineage}</span>
+        </div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">Attribution</div>
+        <div class="schema-fields">
+          <span class="fname">event_id, kpi, total_delta, explained_delta, residual_delta</span> ·
+          <span class="fname">method_choice</span>: <span class="ftype">MethodChoice</span> {chosen, reason, considered: dict[str,str], preconditions_checked}<br/>
+          <span class="fname">contributions</span>: <span class="ftype">list[Contribution]</span> — each
+          <span class="ftype">{driver, contribution, share, method, <b>exact: bool</b>, std_error, ci_low, ci_high, controllable, owner}</span>
+        </div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">EvidenceBundle</div>
+        <div class="schema-fields">
+          <span class="fname">event, attributions: list[Attribution]</span> ·
+          <span class="fname">confidence</span>: <span class="ftype">ConfidenceBreakdown</span> {score, signal_to_noise, support_factor, history_factor, estimator_precision, method_agreement, formula} ·
+          <span class="fname">abstained: bool, abstention: AbstainPayload|None</span> {reason_code, message, missing_evidence, what_would_resolve_it} ·
+          <span class="fname">freshness, lineage, deterministic_methods, llm_methods</span> <span class="ftype">(reserved, always empty)</span>
+        </div>
+        <div class="func-note">This is the only object a narration layer is allowed to see.</div>
+      </div>
+      <div class="schema">
+        <div class="schema-name">RunManifest</div>
+        <div class="schema-fields">
+          <span class="fname">run_id, started_at/finished_at, dataset, configs: dict, stages: list[StageTelemetry], total_duration_ms, counts: dict[str,int]</span> ·
+          <span class="fname">llm_calls, llm_tokens_in/out</span> ·
+          <span class="fname">llm_cost_usd</span>: <span class="ftype">float|None</span> — <span class="func-note" style="display:inline">None when the model's rates are unknown, never a fabricated 0.</span> ·
+          <span class="fname">llm_model</span>: <span class="ftype">str|None</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="sources">
+      <h2><span class="num">04</span><code>kpi_engine.sources</code></h2>
+      <p class="lede">A <code>DataSource</code> protocol plus a registry, so adding a backend is one class and one registry line.</p>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">base.py</span><span class="mod-purpose">the protocol</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">class DataSource(ABC): __init__(spec); describe() -> SourceDescription; load(columns=None, date_range=None) -> DataFrame; freshness() -> Freshness</code></div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">registry.py</span><span class="mod-purpose">type → class dispatch</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">register_source(type_name, cls)</code><div class="func-note">Adds a backend to <code>_REGISTRY</code> (starts with <code>csv</code>, <code>excel</code>).</div></div>
+          <div class="func"><code class="sig">build_source(spec: SourceSpec, base_dir=None) -> DataSource</code><div class="func-note">Entry point used everywhere else.</div></div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">csv_source.py / excel_source.py</span><span class="mod-purpose">concrete adapters</span></div>
+        <div class="func-list"><div class="func-note">Same interface as the protocol; <code>describe()</code> samples the first 1000 rows for schema, counts lines for row count.</div></div>
+      </div>
+    </section>
+
+    <section id="profiling">
+      <h2><span class="num">05</span><code>kpi_engine.profiling</code></h2>
+      <p class="lede">Finds duplicate columns and linear identities before anything downstream can treat collinear columns as independent causal drivers.</p>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">profiler.py</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">find_duplicate_groups(df, columns) -> list[list[str]]</code><div class="func-note">Buckets by rounded sum/std/count, then pairwise-diffs within a bucket. Tolerance 1e-6.</div></div>
+          <div class="func"><code class="sig">find_linear_identities(df, columns, max_terms=3, sample=3000) -> list[IdentityFinding]</code><div class="func-note">Brute-force ±1-coefficient search over combinations up to 3 terms — catches things like <code>Total Gross Profit = Net Sales − COGS</code>.</div></div>
+          <div class="func"><code class="sig">resolve_redundancy(column_order, duplicate_groups, identities) -> (groups, dict[str,str])</code><div class="func-note">An identity over <em>k</em> columns drops exactly one, never <em>k</em>.</div></div>
+          <div class="func"><code class="sig">measure_coverage(df, date_column, grains) -> list[GrainCoverage]</code></div>
+          <div class="func"><code class="sig">profile_source(source, df=None) -> DataProfile</code><div class="func-note">Entry point — chains all of the above.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="semantics">
+      <h2><span class="num">06</span><code>kpi_engine.semantics</code></h2>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">expressions.py</span><span class="mod-purpose">a restricted AST evaluator — never <code>eval</code></span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">validate_expression(expression: str) -> ast.Expression</code><div class="func-note">Whitelist: <code>_ALLOWED_NODES</code>, <code>_ALLOWED_FUNCS = {abs,min,max,log,exp,sqrt,safe_div}</code>.</div></div>
+          <div class="func"><code class="sig">evaluate(expression, env) -> Any</code><div class="func-note">The only entry point used elsewhere. Formula strings are untrusted input by design.</div></div>
+          <div class="func"><code class="sig">_safe_div(a, b)</code><div class="func-note">Zero denominator → NaN, never raises.</div></div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">panel.py</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">build_panel(df, contract, date_column="Date", kpis=None, entity_keys=None) -> KpiPanel</code><div class="func-note">Entry point. Aggregates measures to the grain <em>first</em>, then applies the expression — ratio-of-sums, never mean-of-ratios.</div></div>
+          <div class="func"><code class="sig">class KpiPanel: .series(kpi, entity) -> DataFrame; .entities(); .kpi_names()</code></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="eda">
+      <h2><span class="num">07</span><code>kpi_engine.eda</code></h2>
+      <div class="callout">
+        <span class="k">Invariant</span>
+        <p>EDA emits no <code>Flag</code> and nothing downstream reads it. It describes; it never decides — which is what lets it change freely without re-verifying detection.</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">runner.py</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">profile_panel(panel, spec, contract, source_id, source_path) -> list[SeriesProfile]</code><div class="func-note">Entry point — one call per KPI × entity slice. <code>_GRAIN_PERIOD = {day:7, week:4, month:12}</code> — grain-aware here, deliberately <em>not</em> in detection (see Detection section).</div></div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">trend.py</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">summarise_trend(values, spec, decomposition=None) -> TrendSummary</code><div class="func-note">Theil-Sen slope + Mann-Kendall p-value — robust to the single spike that would drag an OLS slope.</div></div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">seasonality.py, segments.py, quality.py</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">summarise_seasonality(...) -> SeasonalitySummary</code><div class="func-note">Floor calibrated at 0.45 — noise reaches p99 = 0.371 over 300 simulations.</div></div>
+          <div class="func"><code class="sig">segment_series(periods, values, spec, trend_spec) -> list[SeriesSegment]</code><div class="func-note">PELT-based phase detection.</div></div>
+          <div class="func"><code class="sig">summarise_quality(periods, values, support, ...) -> DataQualitySummary</code></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="detection">
+      <h2><span class="num">08</span><code>kpi_engine.detection</code></h2>
+      <p class="lede">STL → expanding baseline → {point, changepoint, multivariate} → event windows.</p>
+      <div class="callout warn">
+        <span class="k">Deliberate, not a bug</span>
+        <p>Detection's STL period is <em>not</em> grain-aware, unlike EDA's. Setting <code>period=4</code> at weekly grain was measured: flags 96→73, events 11→8, recall 100%→83.3%. A 4-period cycle at weekly grain lets STL absorb a month-long shock as seasonality.</p>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">decompose.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">decompose_series(series, spec) -> DecompositionResult</code><div class="func-note">STL wrapper, with a flat fallback when there isn't enough data.</div></div></div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">baseline.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">fit_expanding_baseline(values, spec, period=7, refit_every=7) -> BaselineResult</code><div class="func-note">Ridge or seasonal-naive. Strictly no lookahead — trains only on data before t.</div></div>
+        <div class="func"><code class="sig">robust_scale(residual, mad_floor=1e-9) -> (median, MAD)</code></div></div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">point.py / changepoint.py / multivariate.py</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">detect_point_anomalies(...) -> list[Flag]</code><div class="func-note">Modified z-score via <code>robust_scale</code>.</div></div>
+          <div class="func"><code class="sig">detect_changepoints(...) -> list[Flag]</code><div class="func-note">PELT and/or CUSUM per <code>spec.method</code>.</div></div>
+          <div class="func"><code class="sig">detect_multivariate(residuals, periods, support, entity, spec) -> list[Flag]</code><div class="func-note">Mahalanobis distance, shrunk covariance, chi-square cutoff.</div></div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">windowing.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">build_event_windows(flags, panel, contract, spec, profile, ...) -> list[EventWindow]</code><div class="func-note">Entry point. Clusters flags by entity; an event needs ≥2 flags from ≥2 detector families and ≥1 material deviation — that gate raised precision 42.9%→54.5% at unchanged 100% recall.</div></div></div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">runner.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">run_detection(panel, spec, contract) -> DetectionOutput</code><div class="func-note">Entry point — drives point/changepoint/multivariate per KPI×entity.</div></div></div>
+      </div>
+    </section>
+
+    <section id="causal">
+      <h2><span class="num">09</span><code>kpi_engine.causal</code></h2>
+      <p class="lede">Layer A (<code>algebraic</code>) is exact algebra over a KPI's own definition. Layer B (<code>router</code>, DiD/ITS/DML) is estimation over the governed DAG. The two are never conflated.</p>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">dag.py</span><span class="mod-purpose">CausalGraph, wraps networkx</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">upstream_causal_drivers(node) -> list[str]</code></div>
+          <div class="func"><code class="sig">is_controllable(name) -> bool; owner(name) -> str|None</code></div>
+          <div class="func-note">The DAG is declared, not discovered — edges come from <code>configs/causal/retail_dag.yaml</code>; <code>forbidden_edges</code> is checked at load.</div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">algebraic.py</span><span class="mod-purpose">Layer A — exact</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">shapley_decomposition(kpi, pre, post) -> AlgebraicResult</code><div class="func-note">2ⁿ exact enumeration over the formula's own terms. Sums to the total by construction.</div></div>
+          <div class="func"><code class="sig">lmdi_decomposition(kpi, pre, post, numerator, denominator) -> AlgebraicResult</code></div>
+          <div class="func"><code class="sig">mix_decomposition(kpi, pre_by_entity, post_by_entity) -> dict[str,float]</code><div class="func-note">Within-slice vs. mix-shift split.</div></div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">did.py / its.py / dml.py</span><span class="mod-purpose">Layer B — estimated</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">estimate_did(panel, kpi, entity_key, ...) -> DidResult</code><div class="func-note">Gated on <code>test_parallel_trends</code> passing.</div></div>
+          <div class="func"><code class="sig">estimate_its(panel, kpi, entity, window, pre_periods=120, min_pre=20) -> ItsResult</code><div class="func-note">Segmented regression — level + slope shift.</div></div>
+          <div class="func"><code class="sig">estimate_dml(df, outcome, treatment, confounders, n_folds=5, min_obs=60, seed=0) -> DmlResult</code><div class="func-note">Frisch-Waugh-Lovell, cross-fitted with RidgeCV + KFold.</div></div>
+        </div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">router.py</span><span class="mod-purpose">dispatch — the entry point</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">route_and_attribute(event, kpi_name, panel, measures, raw, contract, graph, entity_keys, blocked_columns, ...) -> Attribution</code></div>
+          <div class="func"><code class="sig">_choose_quasi_experiment(...) -> (MethodChoice, dict)</code><div class="func-note">DiD if donors exist and parallel trends hold; ITS otherwise. <code>MethodChoice.considered</code> records why rejected methods were rejected.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="evidence">
+      <h2><span class="num">10</span><code>kpi_engine.evidence</code></h2>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">confidence.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">score_confidence(event, attributions, n_pre_periods, min_support_required=5) -> ConfidenceBreakdown</code><div class="func-note">Weighted geometric mean over present factors: signal-to-noise, support, history, estimator precision, method agreement.</div></div></div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">abstention.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">check_abstention(event, attributions, confidence, threshold, min_support=3, min_history=28, n_pre_periods=0) -> AbstainPayload|None</code></div></div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">bundle.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">build_evidence_bundle(event, attributions, confidence, freshness, threshold, ...) -> EvidenceBundle</code><div class="func-note">Entry point — calls <code>check_abstention</code> internally.</div></div></div>
+      </div>
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">telemetry.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">class Telemetry: stage(name, rows_in=None) -> contextmanager; count(key, value); finish() -> RunManifest</code></div></div>
+      </div>
+    </section>
+
+    <section id="pipeline">
+      <h2><span class="num">11</span><code>kpi_engine.pipeline</code></h2>
+      <p class="lede">The whole chain in one process, returning objects rather than argv-chaining CLIs. What <code>kpi_agent</code> calls.</p>
+      <div class="mod-card">
+        <div class="func-list">
+          <div class="func"><code class="sig">run_pipeline(spec, contract, detection, *, run_id, graph=None, eda=None,
+    dataset=None, kpis=None, entity_keys=None, time_grain=None,
+    date_range=None, report_window=None, top_events=None,
+    telemetry=None, write_artefacts=True) -> PipelineResult</code></div>
+          <div class="func-note">Chains: load → profile → panel → [eda] → detect → window → [attribute if graph given]. Writes <code>kpi_panel.parquet</code>, <code>flags.json</code>, <code>events.json</code>, <code>series_profiles.json</code>, <code>evidence_bundles.json</code>, <code>run_manifest.json</code> under <code>outputs/&lt;run_id&gt;/</code>.</div>
+        </div>
+      </div>
+      <div class="callout">
+        <span class="k">date_range vs. report_window</span>
+        <p><code>date_range</code> restricts what is <em>read</em>, and therefore starves the baseline. <code>report_window</code> detects over the full history and filters events at the end. Loading only "last quarter" gives the detector 3 periods against a 28-period requirement — it finds nothing and reports a quiet quarter, a wrong answer that looks right. <code>kpi_agent</code> always uses <code>report_window</code>.</p>
+      </div>
+    </section>
+
+    <section id="cli">
+      <h2><span class="num">12</span><code>kpi_engine.cli</code></h2>
+      <p class="lede">One script per stage, each a thin argparse wrapper over the modules above. See RUNBOOK.md for the full command and flag reference.</p>
+      <div class="table-wrap">
+        <table>
+          <tr><th>script</th><th>stage</th></tr>
+          <tr><td class="code">profile_source</td><td>0 — schema, redundancy, coverage</td></tr>
+          <tr><td class="code">inject_scenario</td><td>0b — ground-truth events</td></tr>
+          <tr><td class="code">compute_kpis</td><td>1 — KPI panel</td></tr>
+          <tr><td class="code">profile_series</td><td>1b — trend / seasonality / quality</td></tr>
+          <tr><td class="code">detect_anomalies</td><td>2 — flags → event windows</td></tr>
+          <tr><td class="code">explain_event</td><td>3 — attribution + evidence</td></tr>
+          <tr><td class="code">evaluate</td><td>4 — score vs. ground truth</td></tr>
+          <tr><td class="code">run_pipeline</td><td>all stages, one process</td></tr>
+          <tr><td class="code">export_schemas</td><td>JSON Schema for LLM-authored configs</td></tr>
+          <tr><td class="code">generate_scm</td><td>0c — derive the weekly SCM source</td></tr>
+          <tr><td class="code">ask</td><td>the agent entry point</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= kpi_agent ================= -->
+    <section id="agent-overview">
+      <h2><span class="num">13</span>How <code>kpi_agent</code> is wired</h2>
+      <p class="lede">The agent takes a plain-language question and both data sources, profiles them, turns the question into a validated pipeline configuration, runs the deterministic engine, and narrates the result — grounded by construction. The narrator's entire context is a numbered fact table derived from evidence bundles; it cannot reach the panel, the raw frame, or anything the engine didn't emit as evidence.</p>
+      <div class="callout">
+        <span class="k">Grounding is enforced, not requested</span>
+        <p><code>kpi_agent/verify.py</code> is a deterministic, mechanical check — no second model adjudicating the first. The prompt asks the narrator to quote only from the fact table; the verifier checks that it did. Two failed passes drop to a template that renders the same numbers with no model involved. The floor under the whole design is: the worst case is a terse true report, never a fluent false one.</p>
+      </div>
+    </section>
+
+    <section id="agent-modules">
+      <h2><span class="num">14</span><code>kpi_agent</code> module reference</h2>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">state.py</span><span class="mod-purpose">the graph's shared state</span></div>
+        <div class="func-list"><div class="func"><code class="sig">AgentState(TypedDict, total=False)</code><div class="func-note">Grouped fields: inputs (question, persona, run_id, config) · ingestion (sources, catalog) · planning (intent, intent_problems, clarification) · pipeline (results, links) · narration (context, narrative, verification, repair_attempts, used_fallback, fallback_reason) · output (report_markdown, report_path, telemetry, errors).</div></div></div>
+      </div>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">models.py</span><span class="mod-purpose">every LLM-facing and evidence-facing schema</span></div>
+        <div class="schema" style="margin-top:0;">
+          <div class="schema-name">AnalysisIntent <span class="pill llm" style="margin-left:6px;">LLM output #1</span></div>
+          <div class="schema-fields"><span class="fname">kpis, entity_keys, time_grain, date_start, date_end, sources, persona, question_restated, reasoning, clarification_needed</span></div>
+        </div>
+        <div class="schema">
+          <div class="schema-name">Fact</div>
+          <div class="schema-fields"><span class="fname">id, label, value, display, unit, kind, kpi, entity, source_id, method, exact, controllable, owner, lineage, note</span></div>
+        </div>
+        <div class="schema">
+          <div class="schema-name">CrossSourceLink</div>
+          <div class="schema-fields">12 fields incl. <span class="fname">dag_path, dag_edge</span> — every link carries the DAG edge that licenses it.</div>
+        </div>
+        <div class="schema">
+          <div class="schema-name">GroundedContext <span class="pill llm" style="margin-left:6px;">narrator's whole input</span></div>
+          <div class="schema-fields"><span class="fname">question, question_restated, persona, run_id, time_grain, entity_keys, period_start/end, facts, events, links, abstentions, freshness, data_caveats, levers, persona_brief</span></div>
+          <div class="func-note">Method <code>.fact(fact_id)</code>.</div>
+        </div>
+        <div class="schema">
+          <div class="schema-name">Narrative <span class="pill llm" style="margin-left:6px;">LLM output #2</span></div>
+          <div class="schema-fields"><span class="fname">headline</span> ·
+          <span class="fname">what_happened, why, needs_attention</span>: <span class="ftype">list[Claim]</span> {text, evidence_ids} ·
+          <span class="fname">actions</span>: <span class="ftype">list[Action]</span> {driver, lever, action, owner, expected_impact, confidence, monitoring, evidence_ids} ·
+          <span class="fname">uncertainty, abstained_from</span></div>
+        </div>
+        <div class="schema">
+          <div class="schema-name">Violation &amp; VerificationResult</div>
+          <div class="schema-fields"><span class="fname">Violation</span>: <span class="ftype">{code: 9-value Literal, where, detail}</span> ·
+          <span class="fname">VerificationResult</span>: <span class="ftype">{passed, violations, numbers_checked, claims_checked}</span> — method <code>.as_feedback() → str</code></div>
+        </div>
+      </div>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">catalog.py</span><span class="mod-purpose">what the planner is allowed to see</span></div>
+        <div class="func-list"><div class="func"><code class="sig">build_catalog(sources, graph) -> dict</code><div class="func-note">Entry point — metadata only. KPI names/units/directions, entity columns and observed values, coverage, redundant columns, DAG nodes/owners. No raw rows.</div></div></div>
+      </div>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">intent.py</span><span class="mod-purpose">model call #1 + the validator that checks it</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">plan_intent(llm, usage, question, catalog, persona=None) -> AnalysisIntent</code><div class="func-note">Builds SystemMessage + 2×HumanMessage, calls <code>llm.with_structured_output(AnalysisIntent, method="json_schema", include_raw=True).invoke(...)</code> directly. Records usage; raises <code>LlmUnavailable</code> on failure.</div></div>
+          <div class="func"><code class="sig">validate_intent(intent, sources) -> (AnalysisIntent|None, list[str])</code><div class="func-note">The deterministic gate. Every KPI/entity key must exist in the catalog; entitlement is checked <em>before</em> existence, so a restricted column is reported as withheld, not absent.</div></div>
+          <div class="func"><code class="sig">default_intent(question, persona, sources, time_grain="week", entity_keys=None) -> AnalysisIntent</code><div class="func-note">Deterministic broad-sweep fallback, used when no model is available.</div></div>
+        </div>
+      </div>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">linking.py</span><span class="mod-purpose">cross-source event alignment</span></div>
+        <div class="func-list"><div class="func"><code class="sig">link_events(sales_events, scm_events, sales_contract, scm_contract, graph, *, lag_tolerance_days=42, sales_bundles=None) -> list[CrossSourceLink]</code><div class="func-note">Entry point. A link is emitted only if a declared DAG edge licenses it — via <code>nx.shortest_path</code> on <code>graph.graph</code>. Same region, overlapping windows, no path → no link.</div></div></div>
+      </div>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">facts.py</span><span class="mod-purpose">bundles → the narrator's entire context</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">build_context(*, question, intent, persona_spec, run_id, sales_bundles, scm_bundles, links, graph, freshness, series_profiles=None, period=(None,None)) -> GroundedContext</code><div class="func-note">Entry point. Assigns sequential <code>F1, F2, ...</code> ids.</div></div>
+          <div class="func"><code class="sig">_cap(facts, limit)</code><div class="func-note">Priority-ordered truncation — <code>["link","movement","confidence","contribution","method","freshness","quality"]</code> — so a persona's fact cap never silently drops the cross-source link that answers the question.</div></div>
+        </div>
+      </div>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">narrate.py</span><span class="mod-purpose">model call #2 + the deterministic fallback</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">narrate(llm, usage, context, *, repair_feedback=None, previous=None) -> Narrative</code><div class="func-note">Same direct-LangChain-call pattern as <code>plan_intent</code>.</div></div>
+          <div class="func"><code class="sig">fallback_narrative(context, reason="") -> Narrative</code><div class="func-note">Deterministic template — same numbers, plainer prose. Backs <code>--no-llm</code> and a failed repair pass.</div></div>
+        </div>
+      </div>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">verify.py</span><span class="mod-purpose">the actual grounding enforcement — no model involved</span></div>
+        <div class="func-list">
+          <div class="func"><code class="sig">verify(narrative, context, graph) -> VerificationResult</code><div class="func-note">Entry point. Constants: <code>REL_TOLERANCE=0.02</code>, <code>ABS_TOLERANCE=0.051</code>, <code>STRUCTURAL_MAX=12</code>. Checks: every numeric literal resolves to a fact within tolerance · every evidence id resolves · no causal claim on an abstained bundle · every driver/lever/owner exists in the DAG · action targets are controllable · direction language agrees with the contribution's sign.</div></div>
+        </div>
+      </div>
+
+      <div class="mod-card">
+        <div class="mod-head"><span class="mod-path">render.py</span></div>
+        <div class="func-list"><div class="func"><code class="sig">render_markdown(narrative, context, verification, telemetry) -> str</code><div class="func-note">Full report: headline, sections, actions table, abstentions, cross-source links table, verification result, evidence table, data caveats, deterministic-vs-LLM split.</div></div></div>
+      </div>
+    </section>
+
+    <section id="llm-layer">
+      <h2><span class="num">15</span>The LLM layer</h2>
+      <p class="lede">One file configures the model; nothing wraps the call. <code>kpi_agent/llm.py</code> holds the constants and the constructor — <code>intent.py</code> and <code>narrate.py</code> call <code>.with_structured_output(...).invoke(...)</code> on the model object themselves, directly, in the node.</p>
+
+      <div class="table-wrap">
+        <table>
+          <tr><th>constant</th><th>value</th><th>meaning</th></tr>
+          <tr><td class="code">DEFAULT_MODEL</td><td class="code">gemini-3.5-flash-lite</td><td>the only place a model name is written; <code>--model</code> overrides per run</td></tr>
+          <tr><td class="code">TIMEOUT_SECONDS</td><td class="code">150</td><td>per-attempt deadline</td></tr>
+          <tr><td class="code">ATTEMPTS</td><td class="code">3</td><td>worst case ≈ 7.5 min for one call</td></tr>
+          <tr><td class="code">MAX_OUTPUT_TOKENS</td><td class="code">16000</td><td>shared cap — the narrator's payload is the larger of the two</td></tr>
+          <tr><td class="code">REASONING_EFFORT</td><td class="code">medium</td><td>passed to Gemini's <code>reasoning_effort</code></td></tr>
+        </table>
+      </div>
+
+      <h4>build_llm(model=None) → ChatGoogleGenerativeAI</h4>
+      <p>The single constructor. Loads <code>.env</code>, builds one <code>langchain_google_genai.ChatGoogleGenerativeAI</code>. Built <em>once</em> per run and shared by both call sites — both take the same effort and output cap, which is what makes a single shared object correct. <code>temperature</code> is deliberately never set: the Gemini 3 family samples at fixed settings and warns if sent one, and every quantity in a report is fixed by the fact table regardless of decoding.</p>
+
+      <div class="callout warn">
+        <span class="k">Why not a client wrapper class</span>
+        <p>An earlier version wrapped the call in a <code>GeminiClient.parse(...)</code> method. It's gone: the nodes now call LangChain's own <code>.with_structured_output(schema, method="json_schema", include_raw=True).invoke(messages)</code> directly. <code>method="json_schema"</code> sends the Pydantic model's own <code>model_json_schema()</code> as <code>response_json_schema</code> — <code>$ref</code>, <code>anyOf</code>, and the <code>additionalProperties: false</code> that <code>extra="forbid"</code> emits all survive the trip, and the reply is validated against that same strict model on the way back. A fabricated field is refused twice over, with no dialect-translation layer to maintain.</p>
+      </div>
+
+      <h4>The two call sites</h4>
+      <div class="table-wrap">
+        <table>
+          <tr><th>call</th><th>where</th><th>schema out</th><th>effort</th></tr>
+          <tr><td>#1 — plan</td><td class="code">intent.plan_intent</td><td class="code">AnalysisIntent</td><td>medium</td></tr>
+          <tr><td>#2 — narrate</td><td class="code">narrate.narrate</td><td class="code">Narrative</td><td>medium</td></tr>
+        </table>
+      </div>
+      <p>Message order is fixed at both sites: a frozen system prompt, then the stable context block (catalog / evidence), then the varying user turn last. Gemini's context caching is an implicit prefix match with no handle to manage, so that ordering is the entire optimization.</p>
+
+      <h4>Usage &amp; the --no-llm path</h4>
+      <p><code>Usage</code> (a dataclass in <code>llm.py</code>) accumulates <code>calls, tokens_in, tokens_out, cache_read</code> from LangChain's normalized <code>usage_metadata</code> — input tokens already include cache reads, output tokens already include thinking tokens, so nothing is double-counted. <code>.cost_usd</code> is <code>None</code> when a model's rates aren't supplied — an unpriced model reports token counts and declines to state a dollar figure rather than reporting a fabricated <code>$0.00</code>.</p>
+      <p><code>run_agent(..., llm=None, ...)</code> is the entire <code>--no-llm</code> path: both <code>plan_intent</code> and <code>narrate</code> graph nodes check for <code>llm is None</code> and take the deterministic branch — <code>default_intent</code> and <code>fallback_narrative</code> respectively. No API key is touched.</p>
+    </section>
+
+    <section id="langgraph">
+      <h2><span class="num">16</span>The LangGraph pipeline, end to end</h2>
+      <p class="lede"><code>graph.py</code> defines 12 node functions and 2 conditional routers over <code>AgentState</code>.</p>
+
+      <div class="diagram-wrap">
+<pre class="mermaid">
+flowchart TD
+  A[ingest_sources] --> B[plan_intent]
+  B --> C[validate_intent]
+  C -->|rejected / clarification_needed| D[clarify]:::end
+  C -->|resolved| E[run_pipelines]
+  E -->|no events found| F[no_findings]:::end
+  E -->|events found| G[link_sources]
+  G --> H[assemble_facts]
+  H --> I[narrate]
+  I --> J[verify_narrative]
+  J -->|passed| K[report]:::end
+  J -->|failed, 1st attempt| I
+  J -->|failed twice| L[use_fallback]
+  L --> K
+
+  classDef end fill:#2B6E5F,color:#fff,stroke:none;
+</pre>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <tr><th>node</th><th>does</th></tr>
+          <tr><td class="code">ingest_sources</td><td>Deterministic. <code>build_source</code> + <code>profile_source</code> for sales and SCM, reusing the on-disk profile cache.</td></tr>
+          <tr><td class="code">plan_intent</td><td>Model call #1 (or <code>default_intent</code> if <code>llm is None</code>).</td></tr>
+          <tr><td class="code">validate_intent</td><td>Deterministic gate against the catalog — routed by <span class="code">_after_validate</span>.</td></tr>
+          <tr><td class="code">run_pipelines</td><td>Deterministic. Calls <code>pipeline.run_pipeline</code> once per source, one shared <code>run_id</code>.</td></tr>
+          <tr><td class="code">link_sources</td><td>Deterministic. <code>linking.link_events</code>, DAG-gated.</td></tr>
+          <tr><td class="code">assemble_facts</td><td>Deterministic. <code>facts.build_context</code> — persona selects which facts survive.</td></tr>
+          <tr><td class="code">narrate</td><td>Model call #2 (or <code>fallback_narrative</code> if <code>llm is None</code>).</td></tr>
+          <tr><td class="code">verify_narrative</td><td>Deterministic. <code>verify.verify</code> — routed by <span class="code">_after_verify</span>.</td></tr>
+          <tr><td class="code">use_fallback</td><td>Deterministic template render — the floor under the whole design.</td></tr>
+          <tr><td class="code">clarify / no_findings</td><td>Terse terminal reports via <code>_write_terse_report</code>.</td></tr>
+          <tr><td class="code">report</td><td>Writes <code>agent_report.md</code> / <code>.json</code>, populates <code>RunManifest.llm_*</code> fields.</td></tr>
+        </table>
+      </div>
+
+      <p><code>MAX_REPAIR_ATTEMPTS = 1</code> — one repair pass with the violation list fed back as <code>repair_feedback</code>; a second failure routes to <code>use_fallback</code> rather than retrying indefinitely.</p>
+
+      <h4>run_agent(question, *, llm=None, persona=None, run_id=None, config=None) → AgentState</h4>
+      <p>The top-level entry point. Puts <code>llm</code> and a fresh <code>Usage()</code> into the config dict, invokes the compiled graph with <code>recursion_limit=40</code>. <code>DEFAULT_CONFIG</code> wires two sources (<code>retail_daily</code>, <code>scm_weekly</code>) at <code>time_grain="week"</code>, <code>entity_keys=["Region"]</code>, <code>top_events=5</code>.</p>
+    </section>
+
+    <section id="dependencies">
+      <h2><span class="num">17</span>Dependencies</h2>
+      <div class="table-wrap">
+        <table>
+          <tr><th>group</th><th>package</th><th>why</th></tr>
+          <tr><td rowspan="10">core</td><td class="code">pandas ≥2.2</td><td>panel construction, all tabular work</td></tr>
+          <tr><td class="code">pyarrow ≥16.0</td><td>parquet I/O for <code>kpi_panel.parquet</code></td></tr>
+          <tr><td class="code">pydantic ≥2.7</td><td>every config/payload schema, <code>extra="forbid"</code></td></tr>
+          <tr><td class="code">pyyaml ≥6.0</td><td>config file parsing</td></tr>
+          <tr><td class="code">statsmodels ≥0.14</td><td>STL decomposition, Mann-Kendall</td></tr>
+          <tr><td class="code">scikit-learn ≥1.5</td><td>Ridge/RidgeCV baselines, DML cross-fitting</td></tr>
+          <tr><td class="code">ruptures ≥1.1.9</td><td>PELT changepoint / segmentation</td></tr>
+          <tr><td class="code">scipy ≥1.13</td><td>statistics primitives</td></tr>
+          <tr><td class="code">networkx ≥3.3</td><td>the causal DAG, <code>shortest_path</code> for links</td></tr>
+          <tr><td class="code">openpyxl ≥3.1</td><td>Excel source adapter</td></tr>
+          <tr><td>dev</td><td class="code">pytest ≥8.0</td><td>139-test suite</td></tr>
+          <tr><td rowspan="3">agent</td><td class="code">langgraph ≥0.2</td><td>the state graph</td></tr>
+          <tr><td class="code">langchain-google-genai ≥4.0.0</td><td>the model call — <code>ChatGoogleGenerativeAI</code></td></tr>
+          <tr><td class="code">python-dotenv ≥1.2.3</td><td><code>.env</code> loading for <code>GOOGLE_API_KEY</code></td></tr>
+        </table>
+      </div>
+      <p class="func-note">The <code>agent</code> extra is optional on purpose — the deterministic engine installs and runs with zero LLM dependencies and no API key.</p>
+    </section>
+
+    <section id="configs">
+      <h2><span class="num">18</span>Configs</h2>
+      <div class="table-wrap">
+        <table>
+          <tr><th>file</th><th>validated by</th><th>configures</th></tr>
+          <tr><td class="code">configs/sources/retail_csv.yaml</td><td class="code">SourceSpec</td><td><code>retail_daily</code> — the sales source</td></tr>
+          <tr><td class="code">configs/sources/retail_injected.yaml</td><td class="code">SourceSpec</td><td>same, pointed at the scenario-injected CSV</td></tr>
+          <tr><td class="code">configs/sources/scm_csv.yaml</td><td class="code">SourceSpec</td><td><code>scm_weekly</code> — supply-chain source, weekly grain</td></tr>
+          <tr><td class="code">configs/semantics/retail_kpis.yaml</td><td class="code">KpiContract</td><td><code>retail_core_v1</code>, day grain</td></tr>
+          <tr><td class="code">configs/semantics/scm_kpis.yaml</td><td class="code">KpiContract</td><td><code>scm_core_v1</code>, week grain, restricted columns</td></tr>
+          <tr><td class="code">configs/detection/default.yaml</td><td class="code">DetectionSpec</td><td>STL/baseline/threshold params, calibrated against ground truth</td></tr>
+          <tr><td class="code">configs/eda/default.yaml</td><td class="code">EdaSpec</td><td>descriptive-only trend/seasonality/segment params</td></tr>
+          <tr><td class="code">configs/causal/retail_dag.yaml</td><td class="code">CausalGraphSpec</td><td>the governed DAG — nodes, edges, forbidden reversals</td></tr>
+          <tr><td class="code">configs/scenarios/ad_cost_shock.yaml</td><td class="code">ScenarioSpec</td><td>2 injected ground-truth events</td></tr>
+          <tr><td class="code">configs/agent/personas.yaml</td><td class="code">Persona spec</td><td>analyst / exec / ops — <code>include_facts</code>, <code>max_facts</code>, <code>restricted_entitlements</code>, <code>brief</code></td></tr>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      Generated from a direct read of the source tree. Command and flag
+      reference lives separately in RUNBOOK.md.
+    </footer>
+  </main>
+</div>
