@@ -1,10 +1,3 @@
-/**
- * One-off script to delete an uploaded file: its row in `uploads`, its
- * cascaded row in `analyses`, and its object in Supabase Storage.
- *
- * Edit FILENAME below, then run from server/:
- *   npx ts-node scripts/delete-upload.ts
- */
 import 'dotenv/config';
 import { createClient } from '@supabase/supabase-js';
 

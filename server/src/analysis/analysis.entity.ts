@@ -26,6 +26,16 @@ export interface ActionPlan {
   monitor: string;
 }
 
+export interface DriverKpi {
+  kpiName: string;
+  formula: string;
+  value: string;
+  delta: number;
+  deltaLabel: string;
+  keyDrivers: string;
+  impactRatio: string;
+}
+
 export interface KpiCase {
   id: string;
   kpiName: string;
@@ -42,6 +52,7 @@ export interface KpiCase {
     businessImpact: string;
   };
   decompose: DecomposeStep[];
+  driverBreakdown: DriverKpi[];
   evidence: EvidenceItem[];
   contributionTotal: number;
   narratives: Record<string, string>;

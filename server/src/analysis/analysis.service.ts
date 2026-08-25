@@ -15,7 +15,6 @@ export class AnalysisService {
 
   constructor(private readonly supabase: SupabaseService) {}
 
-  /** Fire-and-forget: runs analysis in the background and persists the result. */
   runInBackground(params: {
     uploadId: string;
     domain: string;

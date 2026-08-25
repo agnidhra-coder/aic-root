@@ -14,7 +14,19 @@ export interface KpiContract {
 export const contracts: Record<Domain, KpiContract> = {
   retail: {
     domain: "retail",
-    kpis: ["Revenue", "Conversion Rate", "Average Order Value", "Return Rate"],
+    kpis: [
+      "Revenue",
+      "Conversion Rate",
+      "Average Order Value",
+      "Return Rate",
+      "Traffic",
+      "Profit",
+      "Costs",
+      "Shrinkage",
+      "Retention",
+      "Churn",
+      "Margin",
+    ],
     dimensions: ["Region", "Channel", "Product category", "Traffic source"],
     drivers: ["Pricing / promo changes", "Checkout / site performance", "Sizing / SKU quality", "Assortment shifts"],
     structured: ["Web analytics (sessions, funnel)", "POS", "Marketing-spend ledger"],

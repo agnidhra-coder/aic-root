@@ -10,6 +10,7 @@ import { PipelineStepper } from "@/components/PipelineStepper";
 import { TierBadge } from "@/components/TierBadge";
 import { EvidenceCard } from "@/components/EvidenceCard";
 import { ActionPlanCard } from "@/components/ActionPlanCard";
+import { DriverBreakdownCard } from "@/components/DriverBreakdownCard";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError, getAnalysisRequest, type KpiCase } from "@/lib/api";
 
@@ -51,11 +52,11 @@ function CaseDetailContent() {
       <Header />
       <main className="w-full flex-1 px-6 py-10 sm:px-10 lg:px-16 xl:px-24">
         <Link
-          href="/dashboard"
+          href={`/uploads/${uploadId}/analysis`}
           className="mb-6 inline-flex items-center gap-1.5 text-base font-medium text-slate-500 transition hover:text-accent-600"
         >
           <ArrowLeft size={17} />
-          Back to dashboard
+          Back to results
         </Link>
 
         {isLoading && <p className="text-base text-slate-400">Loading…</p>}
@@ -113,6 +114,13 @@ function CaseDetailContent() {
                   </div>
                 ))}
               </div>
+            </section>
+
+            <section className="mb-10">
+              <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">
+                Driver KPIs — what&apos;s moving {kpiCase.kpiName}
+              </h2>
+              <DriverBreakdownCard drivers={kpiCase.driverBreakdown} />
             </section>
 
             <section className="mb-10">

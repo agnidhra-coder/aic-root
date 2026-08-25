@@ -1,8 +1,3 @@
-/**
- * Duplicated from frontend/lib/contracts.ts. Keep in sync by hand until
- * these apps share a workspace package.
- */
-
 export type UploadDomain = 'retail' | 'supply-chain';
 
 export interface KpiContract {
@@ -14,7 +9,19 @@ export interface KpiContract {
 export const kpiContracts: Record<UploadDomain, KpiContract> = {
   retail: {
     domain: 'retail',
-    kpis: ['Revenue', 'Conversion Rate', 'Average Order Value', 'Return Rate'],
+    kpis: [
+      'Revenue',
+      'Conversion Rate',
+      'Average Order Value',
+      'Return Rate',
+      'Traffic',
+      'Profit',
+      'Costs',
+      'Shrinkage',
+      'Retention',
+      'Churn',
+      'Margin',
+    ],
     dimensions: ['Region', 'Channel', 'Product category', 'Traffic source'],
   },
   'supply-chain': {

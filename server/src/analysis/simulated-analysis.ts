@@ -1,12 +1,15 @@
-import { AnalysisResult, ConfidenceTier, KpiCase } from './analysis.entity';
-
-/**
- * Stand-in for the real Detect/Decompose/Explain/Act pipeline.
- * Lightly parses the CSV (headers + row count) and fabricates a
- * plausible-looking result in the same shape the real pipeline will
- * eventually produce. Replace this file's `runSimulatedAnalysis` with
- * the real implementation when it's ready — nothing else needs to change.
- */
+import {
+  AnalysisResult,
+  ConfidenceTier,
+  DriverKpi,
+  KpiCase,
+} from './analysis.entity';
+import {
+  kpisForPrimaryMetric,
+  primaryMetrics,
+  PrimaryMetric,
+} from './kpi-knowledge-base';
+import { kpiContracts, UploadDomain } from '../uploads/kpi-contracts';
 
 const TIERS: ConfidenceTier[] = ['EXPLAINED', 'SUSPECTED', 'UNEXPLAINED'];
 
@@ -48,6 +51,33 @@ function fabricateTrend(rand: () => number, base: number): number[] {
   return trend;
 }
 
+const PRIMARY_METRICS = new Set<string>(primaryMetrics);
+
+function fabricateDriverBreakdown(
+  kpiColumn: string,
+  rand: () => number,
+): DriverKpi[] {
+  if (!PRIMARY_METRICS.has(kpiColumn)) return [];
+  return kpisForPrimaryMetric(kpiColumn as PrimaryMetric).map((kpi) => {
+    const base = 10 + rand() * 990;
+    const delta = Math.round((rand() - 0.5) * 30 * 10) / 10;
+    return {
+      kpiName: kpi.kpiName,
+      formula: kpi.formula,
+      value: base.toFixed(2),
+      delta,
+      deltaLabel: `${delta >= 0 ? '+' : ''}${delta}% WoW`,
+      keyDrivers: kpi.keyDrivers,
+      impactRatio: kpi.impactRatio,
+    };
+  });
+}
+
+function worstDriver(drivers: DriverKpi[]): DriverKpi | null {
+  if (drivers.length === 0) return null;
+  return drivers.reduce((worst, d) => (d.delta < worst.delta ? d : worst));
+}
+
 function fabricateCase(
   kpiColumn: string,
   domain: string,
@@ -64,6 +94,29 @@ function fabricateCase(
       : tier === 'SUSPECTED'
         ? 40 + Math.round(rand() * 29)
         : Math.round(rand() * 30);
+
+  const driverBreakdown = fabricateDriverBreakdown(kpiColumn, rand);
+  const worst = worstDriver(driverBreakdown);
+
+  const action = worst
+    ? {
+        driver: `${worst.kpiName} (${worst.deltaLabel}) — ${worst.keyDrivers}`,
+        lever: worst.keyDrivers,
+        action: `Investigate and improve ${worst.kpiName} (${worst.formula}); it moved ${worst.deltaLabel} and is the largest negative contributor to ${kpiColumn}.`,
+        impact: worst.impactRatio,
+        owner: 'N/A',
+        confidence: tier,
+        monitor: `Track ${worst.kpiName} weekly until it recovers.`,
+      }
+    : {
+        driver: 'Simulated — pending real analysis',
+        lever: 'N/A',
+        action: 'N/A',
+        impact: 'N/A',
+        owner: 'N/A',
+        confidence: tier,
+        monitor: 'N/A',
+      };
 
   return {
     id: `${uploadId}-${kpiColumn.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
@@ -87,21 +140,14 @@ function fabricateCase(
         note: 'This is placeholder output from the simulated analysis pipeline.',
       },
     ],
+    driverBreakdown,
     evidence: [],
     contributionTotal,
     narratives: {
       operational: `[Simulated] ${kpiColumn} for ${domain} moved ${delta}% this week. Real evidence-backed narrative pending.`,
       strategic: `[Simulated] Trend view for ${kpiColumn} pending real analysis.`,
     },
-    action: {
-      driver: 'Simulated — pending real analysis',
-      lever: 'N/A',
-      action: 'N/A',
-      impact: 'N/A',
-      owner: 'N/A',
-      confidence: tier,
-      monitor: 'N/A',
-    },
+    action,
     checkBackDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10),
@@ -115,19 +161,12 @@ export function runSimulatedAnalysis(params: {
 }): AnalysisResult {
   const { headers, rowCount } = parseCsv(params.csvContent);
 
-  const excluded = new Set([
-    'date',
-    'region',
-    'channel',
-    'dc',
-    'lane',
-    'carrier',
-    'supplier',
-    'category',
-  ]);
-  const kpiColumns = headers
-    .filter((h) => !excluded.has(h.toLowerCase()))
-    .slice(0, 5);
+  // Cards are always exactly the domain's contracted KPIs (the Excel's
+  // Primary Metrics) — never derived from whatever columns happen to be in
+  // the uploaded CSV, which may contain many raw-input columns that aren't
+  // KPIs themselves (e.g. "Net Sales", "Sq Footage", "COGS").
+  const contract = kpiContracts[params.domain as UploadDomain];
+  const kpiColumns = contract?.kpis ?? [];
 
   const rand = mulberry32(seedFromString(params.uploadId));
   const cases = kpiColumns.map((col) =>
