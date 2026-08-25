@@ -236,7 +236,11 @@ src/kpi_agent/     LangGraph layer -- the only place a model is called
   narrate.py       LLM #2 + the deterministic template fallback
   llm.py           model configuration, build_llm, usage/cost accounting
   verify.py        mechanical grounding check; no model involved
-  graph.py         the state machine
+  graph.py         the state machine; stream_agent + run_agent, one execution path
+src/kpi_api/       HTTP transport, computing nothing of its own
+  events.py        AgentState -> typed events, one per stage as it lands
+  logbus.py        the stage log forwarded per run
+  app.py           routes, CORS, the worker-thread bridge
 src/kpi_engine/
   contracts/   pydantic models for every config and payload
   sources/     DataSource protocol + csv/excel adapters (registry-dispatched)
@@ -348,7 +352,7 @@ says so.
 ## Tests
 
 ```bash
-uv run pytest tests/ -q      # 131 tests, no API key required
+uv run pytest tests/ -q      # 168 tests, no API key required
 ```
 
 They pin the properties that matter rather than golden outputs: the evaluator

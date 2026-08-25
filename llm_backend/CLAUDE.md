@@ -22,8 +22,10 @@ criteria.
 ## Commands
 
 ```bash
-uv sync --extra dev --extra agent --extra cli    # setup (CPython 3.11, editable install)
-uv run pytest tests/ -q                          # 152 tests
+uv sync --extra dev --extra agent --extra cli --extra api   # setup (CPython 3.11, editable install)
+# `uv sync` is exact -- it uninstalls every extra you do not name. Naming a
+# subset later (`uv sync --extra api`) is what silently removes rich and pytest.
+uv run pytest tests/ -q                          # 168 tests
 uv run pytest tests/test_causal.py::test_shapley_efficiency_axiom -q   # single test
 
 uv run python -m kpi_engine.cli.profile_source   # stage 0: schema, redundancy, coverage
@@ -42,6 +44,11 @@ uv run python -m kpi_engine.cli.ask "why did ROAS drop?" --model gemini-3.7-flas
 uv run python -m kpi_engine.cli.ask "what needs attention?" --persona exec --no-llm
 # force the configuration rather than trusting the planner (see README for the two demo questions)
 uv run python -m kpi_engine.cli.ask "..." --persona analyst --time-grain week --entity-keys Supplier
+
+# the same thing over HTTP, one typed event per stage as it lands
+uv run python -m kpi_api                         # 127.0.0.1:8000, /docs for the schema
+curl -N -X POST localhost:8000/ask -H 'content-type: application/json' \
+  -d '{"question":"what needs attention?","no_llm":true,"persona":"exec"}'
 
 # end to end
 uv run python -m kpi_engine.cli.run_pipeline --entity-keys Region --time-grain week \
@@ -89,6 +96,17 @@ See `RUNBOOK.md` for what each stage reads, writes, and what to look for.
   wording of a failed call. It holds no call site: `intent.py` and `narrate.py`
   call `.with_structured_output(...).invoke(...)` on the model object themselves.
 - `verify.py` — deterministic grounding check. No model involved.
+- `graph.py` — `stream_agent` yields `(node, state-so-far)` as each node
+  completes; `run_agent` is a drain of it. One execution path, two ways of
+  watching it.
+
+`src/kpi_api/` — HTTP, and nothing else:
+- `events.py` — the projection from `AgentState` to typed events, and the only
+  place anything is serialised. Every event names its fields.
+- `logbus.py` — the stage log forwarded per-run, routed by a `ContextVar` so two
+  concurrent runs cannot land in each other's stream.
+- `app.py` — routes, CORS, the worker-thread-to-queue bridge, the concurrency
+  guard. `models.py` mirrors the `ask` flags; `__main__.py` starts uvicorn.
 
 ## Invariants — do not break these
 
@@ -150,6 +168,19 @@ See `RUNBOOK.md` for what each stage reads, writes, and what to look for.
   of the same objects and never a second source of truth --
   `test_the_console_view_does_not_replace_the_markdown_artefact` pins that, and
   `ask --plain` is byte-identical to the written file.
+- **The API is a third view, not a second engine.** `run_agent`, `POST /ask` and
+  `POST /ask/sync` all drain `stream_agent`, and `/ask/sync` is built by folding
+  the same events `/ask` streams. An endpoint that assembles its own graph run,
+  or that serialises `AgentState` wholesale, gives up the guarantee that the
+  terminal and the wire report the same numbers for the same question --
+  `test_the_sync_endpoint_and_the_stream_report_the_same_thing` and
+  `test_streaming_the_graph_reproduces_what_invoke_returns` pin both halves. The
+  equivalence rests on `AgentState` declaring no reducers, so adding an
+  `Annotated[list, add]` field breaks it; the second test is what says so.
+- **`AgentState` never reaches the wire.** It carries a live model, a `Usage`,
+  raw DataFrames and `PipelineResult` dataclasses. `events.py` projects field by
+  field and `_sse` encodes with no `default=` fallback, so a leak fails loudly
+  rather than shipping `"<object at 0x...>"` to a client.
 - **`rich` is presentation, never capability.** It lives in the `cli` extra and is
   imported lazily behind `_common.console()`. Every path has a plain-text answer;
   a missing dependency costs colour and box-drawing, never a line of output and

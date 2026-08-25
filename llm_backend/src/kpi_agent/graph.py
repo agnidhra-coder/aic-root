@@ -23,6 +23,7 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import time
+from collections.abc import Iterator
 from typing import Any
 
 from langgraph.graph import END, StateGraph
@@ -127,7 +128,12 @@ def plan_intent(state: AgentState) -> dict[str, Any]:
         return {
             "intent": intent_mod.default_intent(
                 state["question"], state.get("persona") or "analyst", trimmed,
-                time_grain=cfg.get("time_grain", "week"),
+                # `or`, not `.get(..., "week")`: both callers set this key
+                # explicitly, and `None` there means "the caller said nothing",
+                # which a two-argument `.get` does not treat as absent. Passing
+                # that `None` through fails `AnalysisIntent`'s grain literal and
+                # takes down the whole no-model path.
+                time_grain=cfg.get("time_grain") or "week",
                 entity_keys=cfg.get("entity_keys"),
             ),
             "fallback_reason": "no model available (--no-llm)",
@@ -148,7 +154,7 @@ def plan_intent(state: AgentState) -> dict[str, Any]:
         return {
             "intent": intent_mod.default_intent(
                 state["question"], state.get("persona") or "analyst", trimmed,
-                time_grain=cfg.get("time_grain", "week"),
+                time_grain=cfg.get("time_grain") or "week",
                 entity_keys=cfg.get("entity_keys"),
             ),
             "errors": [*state.get("errors", []), f"planner unavailable: {exc}"],
@@ -644,6 +650,53 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
+def stream_agent(
+    question: str,
+    *,
+    llm: Any = None,
+    persona: str | None = None,
+    run_id: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> Iterator[tuple[str, AgentState]]:
+    """Yield `(node_name, state-so-far)` as each node completes.
+
+    The state of the final yield is exactly what `run_agent` returns: this is the
+    one execution path, and `run_agent` is a drain of it. A caller that wants to
+    watch a run happen -- an HTTP stream, a progress bar -- gets the same objects
+    the CLI renders at the end, only earlier. Nothing here decides what a stage
+    *means*; that projection belongs to whoever is watching.
+
+    `AgentState` declares no reducers, so every channel is LangGraph's `LastValue`
+    and accumulating the deltas with `dict.update` reproduces `invoke`'s final
+    state exactly. `test_streaming_the_graph_reproduces_what_invoke_returns` pins
+    that rather than trusting it.
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    cfg["llm"] = llm
+    cfg["usage"] = Usage()
+    run_id = run_id or f"ask-{dt.datetime.now():%Y%m%d-%H%M%S}"
+
+    state: AgentState = {
+        "question": question,
+        "persona": persona,
+        "run_id": run_id,
+        "config": cfg,
+        "errors": [],
+        "repair_attempts": 0,
+        "used_fallback": False,
+    }
+
+    app = build_graph()
+    for chunk in app.stream(dict(state), {"recursion_limit": 40},
+                            stream_mode="updates"):
+        for node, delta in chunk.items():
+            # An interrupt or a subgraph chunk carries no mapping to merge; only
+            # a node's own update does.
+            if isinstance(delta, dict):
+                state.update(delta)
+            yield node, state
+
+
 def run_agent(
     question: str,
     *,
@@ -652,27 +705,16 @@ def run_agent(
     run_id: str | None = None,
     config: dict[str, Any] | None = None,
 ) -> AgentState:
-    """Run the graph. `llm=None` is the deterministic path -- no key, no call.
+    """Run the graph to completion. `llm=None` is the deterministic path -- no key,
+    no call.
 
     The model object and the run's token accounting travel together in the config;
     the two nodes that call a model reach for them there and call LangChain
     directly. Nothing in between knows a model exists.
     """
-    cfg = {**DEFAULT_CONFIG, **(config or {})}
-    cfg["llm"] = llm
-    cfg["usage"] = Usage()
-    run_id = run_id or f"ask-{dt.datetime.now():%Y%m%d-%H%M%S}"
-
-    app = build_graph()
-    return app.invoke(
-        {
-            "question": question,
-            "persona": persona,
-            "run_id": run_id,
-            "config": cfg,
-            "errors": [],
-            "repair_attempts": 0,
-            "used_fallback": False,
-        },
-        {"recursion_limit": 40},
-    )
+    final: AgentState = {}
+    for _node, final in stream_agent(
+        question, llm=llm, persona=persona, run_id=run_id, config=config
+    ):
+        pass
+    return final

@@ -152,6 +152,47 @@ MODEL_STYLE = "magenta"
 ENGINE_STYLE = "cyan"
 
 
+def engine_summary(results: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Per-source counts, as data rather than as a table.
+
+    The console's engine table and the API's `engine` event are two renderings of
+    this one list. Computing it twice is how the terminal and the wire come to
+    disagree about how many events a run found.
+    """
+    rows = []
+    for source_id, result in (results or {}).items():
+        rows.append({
+            "source_id": source_id,
+            "time_grain": result.contract.time_grain,
+            "kpis": len(result.panel.kpi_names()),
+            "flags": len(result.flags),
+            "events": len(result.events),
+            "explained": len(result.bundles),
+        })
+    return rows
+
+
+def abstention_summary(context: GroundedContext) -> list[dict[str, Any]]:
+    """Abstentions collapsed by (kpi, reason).
+
+    Five events abstaining for one reason on one KPI is one finding, not five --
+    `fallback_narrative` collapses them for the same reason, and a panel that did
+    not would read as a wall of identical yellow.
+    """
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for a in context.abstentions:
+        grouped.setdefault((a.get("kpi", "?"), a.get("reason_code", "?")), []).append(a)
+    return [
+        {
+            "kpi": kpi,
+            "reason_code": code,
+            "events": len(group),
+            "message": str(group[0].get("message", "")).strip(),
+        }
+        for (kpi, code), group in grouped.items()
+    ]
+
+
 def render_console(
     console: Any,
     *,
@@ -212,15 +253,15 @@ def render_console(
         for col, justify in (("source", "left"), ("grain", "left"), ("KPIs", "right"),
                              ("flags", "right"), ("events", "right"), ("explained", "right")):
             per_source.add_column(col, justify=justify)
-        for source_id, result in results.items():
-            n_events = len(result.events)
+        for row in engine_summary(results):
+            n_events = row["events"]
             per_source.add_row(
-                source_id,
-                result.contract.time_grain,
-                str(len(result.panel.kpi_names())),
-                str(len(result.flags)),
+                row["source_id"],
+                row["time_grain"],
+                str(row["kpis"]),
+                str(row["flags"]),
                 Text(str(n_events), style="" if n_events else "yellow"),
-                str(len(result.bundles)),
+                str(row["explained"]),
             )
         engine.add_row(per_source)
 
@@ -242,19 +283,13 @@ def render_console(
         engine.add_row("")
         engine.add_row(Text("abstentions — the engine declined to explain these",
                             style="dim"))
-        # Five events abstaining for one reason on one KPI is one finding, not five.
-        # `fallback_narrative` collapses them for the same reason; a panel that did
-        # not would read as a wall of identical yellow.
-        grouped: dict[tuple[str, str], list[dict]] = {}
-        for a in context.abstentions:
-            grouped.setdefault((a.get("kpi", "?"), a.get("reason_code", "?")), []).append(a)
         rows = Table.grid(padding=(0, 1))
         rows.add_column(width=1, no_wrap=True)
         rows.add_column(overflow="fold", style="yellow")
-        for (kpi, code), group in grouped.items():
-            count = f" ({len(group)} events)" if len(group) > 1 else ""
-            rows.add_row("•", Text(f"{kpi} ({code}){count}: "
-                                   f"{str(group[0].get('message', '')).strip()}"))
+        for item in abstention_summary(context):
+            count = f" ({item['events']} events)" if item["events"] > 1 else ""
+            rows.add_row("•", Text(f"{item['kpi']} ({item['reason_code']}){count}: "
+                                   f"{item['message']}"))
         engine.add_row(rows)
 
     console.print(Panel(

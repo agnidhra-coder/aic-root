@@ -12,6 +12,7 @@ rejects a fabricated number is.
 from __future__ import annotations
 
 import datetime as dt
+import re
 import time
 
 import pandas as pd
@@ -32,7 +33,7 @@ from kpi_engine.contracts.payloads import (
 )
 from kpi_engine.scenarios.scm_generator import generate_scm_panel
 
-from kpi_agent import build_graph
+from kpi_agent import build_graph, stream_agent
 from kpi_agent.llm import Usage
 from kpi_agent.intent import validate_intent
 from kpi_agent.linking import link_events
@@ -508,6 +509,78 @@ def _invoke(llm, question="what needs attention?", persona="analyst", run_id="py
          "errors": [], "repair_attempts": 0, "used_fallback": False},
         {"recursion_limit": 40},
     )
+
+
+@pytest.mark.slow
+def test_the_no_model_path_runs_when_no_grain_was_forced():
+    """`--no-llm` with no `--time-grain` is the documented deterministic command,
+    and it must not depend on a grain the caller never gave.
+
+    Both front-ends set `time_grain` explicitly, using `None` to mean "the caller
+    said nothing". A `.get(key, "week")` does not treat a present `None` as
+    absent, so the default never applied and the whole no-model path died on
+    `AnalysisIntent`'s grain literal before computing anything.
+    """
+    app = build_graph()
+    state = app.invoke(
+        {"question": "what needs attention?", "persona": "analyst",
+         "run_id": "pytest-no-grain",
+         "config": {**SMALL_CONFIG, "time_grain": None, "entity_keys": None,
+                    "llm": None, "usage": Usage()},
+         "errors": [], "repair_attempts": 0, "used_fallback": False},
+        {"recursion_limit": 40},
+    )
+    assert state["intent"].time_grain == "week"
+    assert state["report_markdown"]
+
+
+@pytest.mark.slow
+def test_streaming_the_graph_reproduces_what_invoke_returns():
+    """`run_agent` is a drain of `stream_agent`, so the two cannot be allowed to
+    disagree about what a run produced.
+
+    The equivalence rests on `AgentState` declaring no reducers: every channel is
+    LangGraph's `LastValue`, which is what makes accumulating the per-node deltas
+    with `dict.update` the same operation `invoke` performs internally. That is a
+    property of the state definition, not a coincidence -- the day someone adds an
+    `Annotated[list, add]` field, this test is what says so, rather than the API
+    quietly reporting a shorter list than the CLI.
+    """
+    grounded = Narrative(
+        headline="Several KPIs moved.",
+        what_happened=[Claim(text="A material movement was detected.", evidence_ids=["F1"])],
+        uncertainty="Estimates carry the assumptions their method states.",
+    )
+
+    def fresh():
+        return StubLlm(_intent(sources=["retail_daily"], entity_keys=["Region"]),
+                       grounded.model_copy(deep=True))
+
+    invoked = _invoke(fresh(), run_id="pytest-stream-parity")
+
+    nodes, streamed = [], {}
+    for node, streamed in stream_agent(
+        "what needs attention?", llm=fresh(), persona="analyst",
+        run_id="pytest-stream-parity", config=SMALL_CONFIG,
+    ):
+        nodes.append(node)
+
+    assert set(streamed) == set(invoked)
+    # Wall-clock runtime is the one figure a report carries that is allowed to
+    # differ between two runs of the same question.
+    def _timeless(markdown: str) -> str:
+        return re.sub(r"runtime \| \d+ ms", "runtime | N ms", markdown)
+
+    assert _timeless(streamed["report_markdown"]) == _timeless(invoked["report_markdown"])
+    assert streamed["narrative"] == invoked["narrative"]
+    assert streamed["verification"] == invoked["verification"]
+    assert streamed["intent"] == invoked["intent"]
+
+    # And it arrived progressively rather than all at the end -- the whole reason
+    # the streaming entry point exists.
+    assert nodes[0] == "ingest_sources"
+    assert nodes[-1] == "report"
+    assert nodes.index("plan_intent") < nodes.index("run_pipelines")
 
 
 @pytest.mark.slow
