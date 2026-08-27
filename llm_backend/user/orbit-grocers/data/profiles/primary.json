@@ -1,0 +1,665 @@
+{
+  "schema_version": "1.0",
+  "source_id": "primary",
+  "generated_at": "2026-08-28T00:30:49.441708",
+  "description": {
+    "schema_version": "1.0",
+    "source_id": "primary",
+    "path": "/home/abhirup/DEV/Accenture Hackathon/aic-root/llm_backend/user/orbit-grocers/data/raw/primary.csv",
+    "n_rows": 2624,
+    "columns": [
+      "Date",
+      "Region",
+      "Channel",
+      "Product category",
+      "Traffic source",
+      "Net Sales",
+      "Sq Footage",
+      "Total Transactions",
+      "Units Sold",
+      "Total Visitors",
+      "Number of Sales",
+      "Store Entrances",
+      "Website Sessions",
+      "Total Gross Profit",
+      "Avg Inventory Cost",
+      "COGS",
+      "Avg Inventory Value",
+      "Beginning Inventory",
+      "Recorded Value",
+      "Actual Value",
+      "Retail Sales",
+      "Start Customers",
+      "End Customers",
+      "New Customers",
+      "Customers Lost",
+      "Sales Marketing Expenses",
+      "Avg Purchase Value",
+      "Avg Purchase Frequency",
+      "Avg Customer Lifespan Years",
+      "Revenue From Ads",
+      "Cost Of Ads",
+      "Total Revenue",
+      "Total Expenses",
+      "Cash",
+      "Marketable Securities",
+      "Accounts Receivable",
+      "Current Liabilities",
+      "Current Assets"
+    ],
+    "dtypes": {
+      "Date": "str",
+      "Region": "str",
+      "Channel": "str",
+      "Product category": "str",
+      "Traffic source": "str",
+      "Net Sales": "float64",
+      "Sq Footage": "int64",
+      "Total Transactions": "int64",
+      "Units Sold": "int64",
+      "Total Visitors": "int64",
+      "Number of Sales": "int64",
+      "Store Entrances": "int64",
+      "Website Sessions": "int64",
+      "Total Gross Profit": "float64",
+      "Avg Inventory Cost": "float64",
+      "COGS": "float64",
+      "Avg Inventory Value": "float64",
+      "Beginning Inventory": "int64",
+      "Recorded Value": "float64",
+      "Actual Value": "float64",
+      "Retail Sales": "float64",
+      "Start Customers": "int64",
+      "End Customers": "int64",
+      "New Customers": "int64",
+      "Customers Lost": "int64",
+      "Sales Marketing Expenses": "float64",
+      "Avg Purchase Value": "float64",
+      "Avg Purchase Frequency": "float64",
+      "Avg Customer Lifespan Years": "float64",
+      "Revenue From Ads": "float64",
+      "Cost Of Ads": "float64",
+      "Total Revenue": "float64",
+      "Total Expenses": "float64",
+      "Cash": "float64",
+      "Marketable Securities": "float64",
+      "Accounts Receivable": "float64",
+      "Current Liabilities": "float64",
+      "Current Assets": "float64"
+    }
+  },
+  "freshness": {
+    "schema_version": "1.0",
+    "source_id": "primary",
+    "max_date": "2026-12-31",
+    "as_of": "2026-08-28",
+    "lag_days": -125,
+    "refresh_cadence": "daily",
+    "is_stale": false
+  },
+  "columns": [
+    {
+      "schema_version": "1.0",
+      "name": "Date",
+      "dtype": "datetime64[us]",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Region",
+      "dtype": "str",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Channel",
+      "dtype": "str",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Product category",
+      "dtype": "str",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Traffic source",
+      "dtype": "str",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Net Sales",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 8108.57,
+      "max": 179994.97,
+      "mean": 93222.00642530488
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Sq Footage",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 1500.0,
+      "max": 5996.0,
+      "mean": 3760.251524390244
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Total Transactions",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 81.0,
+      "max": 2198.0,
+      "mean": 1153.861661585366
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Units Sold",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 103.0,
+      "max": 6952.0,
+      "mean": 2500.126905487805
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Total Visitors",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 1058.0,
+      "max": 105250.0,
+      "mean": 26378.52743902439
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Number of Sales",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 81.0,
+      "max": 2198.0,
+      "mean": 1153.861661585366
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Store Entrances",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 606.0,
+      "max": 91322.0,
+      "mean": 18530.204649390245
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Website Sessions",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 166.0,
+      "max": 39580.0,
+      "mean": 6570.758765243902
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Total Gross Profit",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 2034.22,
+      "max": 96591.64,
+      "mean": 37376.90514481707
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Avg Inventory Cost",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 3557.05,
+      "max": 156426.31,
+      "mean": 60478.09921875001
+    },
+    {
+      "schema_version": "1.0",
+      "name": "COGS",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 3819.37,
+      "max": 132838.82,
+      "mean": 55845.101280487805
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Avg Inventory Value",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 3395.08,
+      "max": 209348.58,
+      "mean": 67228.13838033537
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Beginning Inventory",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 142.0,
+      "max": 15026.0,
+      "mean": 4619.71875
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Recorded Value",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 8223.98,
+      "max": 185218.86,
+      "mean": 94602.95284679878
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Actual Value",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 7697.62,
+      "max": 181964.25,
+      "mean": 90816.13720274389
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Retail Sales",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 8108.57,
+      "max": 179994.97,
+      "mean": 93222.00642530488
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Start Customers",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 2002.0,
+      "max": 8995.0,
+      "mean": 5457.668826219512
+    },
+    {
+      "schema_version": "1.0",
+      "name": "End Customers",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 1782.0,
+      "max": 9285.0,
+      "mean": 5512.41806402439
+    },
+    {
+      "schema_version": "1.0",
+      "name": "New Customers",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 20.0,
+      "max": 500.0,
+      "mean": 258.6806402439024
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Customers Lost",
+      "dtype": "int64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 10.0,
+      "max": 400.0,
+      "mean": 203.9314024390244
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Sales Marketing Expenses",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 1501.05,
+      "max": 14999.83,
+      "mean": 8138.730274390245
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Avg Purchase Value",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 3.75,
+      "max": 2019.99,
+      "mean": 146.7647789634146
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Avg Purchase Frequency",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 1.5,
+      "max": 8.0,
+      "mean": 4.789272103658536
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Avg Customer Lifespan Years",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 1.0,
+      "max": 5.0,
+      "mean": 3.0083612804878053
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Revenue From Ads",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 820.8,
+      "max": 43648.17,
+      "mean": 14812.079615091461
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Cost Of Ads",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 502.22,
+      "max": 7998.05,
+      "mean": 4176.0295083841465
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Total Revenue",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 8108.57,
+      "max": 179994.97,
+      "mean": 93222.00642530488
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Total Expenses",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 5358.84,
+      "max": 168294.64,
+      "mean": 72413.69460365853
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Cash",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 5013.05,
+      "max": 59968.9,
+      "mean": 32372.67153963415
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Marketable Securities",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 4.62,
+      "max": 19997.19,
+      "mean": 10094.738178353658
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Accounts Receivable",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 2019.03,
+      "max": 24997.7,
+      "mean": 13316.921166158536
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Current Liabilities",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 8029.06,
+      "max": 69933.08,
+      "mean": 38663.664150152435
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Current Assets",
+      "dtype": "float64",
+      "non_null": 2624,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 19471.88,
+      "max": 144101.51,
+      "mean": 75952.77225990855
+    }
+  ],
+  "duplicate_groups": [
+    [
+      "Net Sales",
+      "Retail Sales",
+      "Total Revenue"
+    ],
+    [
+      "Total Transactions",
+      "Number of Sales"
+    ]
+  ],
+  "identities": [
+    {
+      "schema_version": "1.0",
+      "target": "Net Sales",
+      "components": [
+        "Total Gross Profit",
+        "COGS"
+      ],
+      "coefficients": [
+        1.0,
+        1.0
+      ],
+      "max_abs_residual": 1.6169246538797002e-16,
+      "kind": "linear_identity"
+    },
+    {
+      "schema_version": "1.0",
+      "target": "Total Gross Profit",
+      "components": [
+        "Net Sales",
+        "COGS"
+      ],
+      "coefficients": [
+        1.0,
+        -1.0
+      ],
+      "max_abs_residual": 3.013079647134442e-16,
+      "kind": "linear_identity"
+    },
+    {
+      "schema_version": "1.0",
+      "target": "COGS",
+      "components": [
+        "Net Sales",
+        "Total Gross Profit"
+      ],
+      "coefficients": [
+        1.0,
+        -1.0
+      ],
+      "max_abs_residual": 2.1909130521284142e-16,
+      "kind": "linear_identity"
+    },
+    {
+      "schema_version": "1.0",
+      "target": "Start Customers",
+      "components": [
+        "End Customers",
+        "New Customers",
+        "Customers Lost"
+      ],
+      "coefficients": [
+        1.0,
+        -1.0,
+        1.0
+      ],
+      "max_abs_residual": 0.0,
+      "kind": "linear_identity"
+    },
+    {
+      "schema_version": "1.0",
+      "target": "End Customers",
+      "components": [
+        "Start Customers",
+        "New Customers",
+        "Customers Lost"
+      ],
+      "coefficients": [
+        1.0,
+        1.0,
+        -1.0
+      ],
+      "max_abs_residual": 0.0,
+      "kind": "linear_identity"
+    },
+    {
+      "schema_version": "1.0",
+      "target": "Customers Lost",
+      "components": [
+        "Start Customers",
+        "End Customers",
+        "New Customers"
+      ],
+      "coefficients": [
+        1.0,
+        -1.0,
+        1.0
+      ],
+      "max_abs_residual": 0.0,
+      "kind": "linear_identity"
+    }
+  ],
+  "identity_groups": [
+    [
+      "Net Sales",
+      "Total Gross Profit",
+      "COGS"
+    ],
+    [
+      "Start Customers",
+      "End Customers",
+      "New Customers",
+      "Customers Lost"
+    ]
+  ],
+  "redundant_columns": {
+    "Retail Sales": "exact duplicate of 'Net Sales'",
+    "Total Revenue": "exact duplicate of 'Net Sales'",
+    "Number of Sales": "exact duplicate of 'Total Transactions'",
+    "Total Gross Profit": "exact linear function of ['Net Sales', 'COGS']",
+    "Start Customers": "exact linear function of ['End Customers', 'New Customers', 'Customers Lost']"
+  },
+  "coverage": [
+    {
+      "schema_version": "1.0",
+      "keys": [],
+      "n_slices": 1,
+      "filled_cells": 714,
+      "possible_cells": 714,
+      "mean_rows_per_cell": 3.675,
+      "sufficient": true
+    },
+    {
+      "schema_version": "1.0",
+      "keys": [
+        "Region"
+      ],
+      "n_slices": 2,
+      "filled_cells": 1235,
+      "possible_cells": 1428,
+      "mean_rows_per_cell": 2.125,
+      "sufficient": false
+    }
+  ]
+}

@@ -1,17 +1,63 @@
 import pandas as pd
 import pytest
 
-from kpi_engine.config_io import load_contract, load_graph, project_root
+from kpi_engine.config_io import load_graph
+from kpi_engine.tenancy import open_company
+
+# The two companies the suite runs against, and why there are two.
+#
+# `acme-retail` is the demo tenant: the real contract, the real DAG, the injected
+# dataset the detector was calibrated on. Anything needing real signal, or
+# asserting on a real KPI name, uses it -- a duplicate fixture contract would
+# drift from the real one the first time a KPI is added.
+#
+# `testco` exists to test tenancy itself. It deliberately declares a source called
+# `retail_daily`, the same id acme uses, so that anything sharing state by source
+# id alone shows up as a failure rather than as a plausible-looking number.
+DEMO_COMPANY = "acme-retail"
+FIXTURE_COMPANY = "testco"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def isolated_outputs(tmp_path_factory):
+    """Send run artefacts to a tmp directory for the whole session.
+
+    The suite uses fixed run ids (`pytest-agent`, `pytest-api-*`) on purpose: two
+    tests assert on the id, and the stream/invoke parity test needs two runs to
+    agree on one. Redirecting the root rather than randomising the ids keeps that
+    coverage while keeping the repository clean.
+
+    Only `outputs/` moves. The profile cache lives under `data/profiles/` and stays
+    where it is -- building one searches signed combinations of up to three columns
+    over ~38 columns and takes minutes, so rebuilding it every session would be the
+    dominant cost of running the tests.
+    """
+    import os
+
+    root = tmp_path_factory.mktemp("outputs")
+    os.environ["KPI_OUTPUTS_ROOT"] = str(root)
+    yield root
+    os.environ.pop("KPI_OUTPUTS_ROOT", None)
 
 
 @pytest.fixture(scope="session")
-def contract():
-    return load_contract(project_root() / "configs/semantics/retail_kpis.yaml")
+def demo():
+    return open_company(DEMO_COMPANY)
 
 
 @pytest.fixture(scope="session")
-def graph_spec():
-    return load_graph(project_root() / "configs/causal/retail_dag.yaml")
+def fixture_company():
+    return open_company(FIXTURE_COMPANY)
+
+
+@pytest.fixture(scope="session")
+def contract(demo):
+    return demo.contract(demo.primary_source_id)
+
+
+@pytest.fixture(scope="session")
+def graph_spec(demo):
+    return load_graph(demo.config("graph"))
 
 
 @pytest.fixture

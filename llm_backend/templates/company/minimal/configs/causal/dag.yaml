@@ -1,0 +1,61 @@
+# The smallest governed graph that still attributes: two KPIs, the measures they
+# are deterministic functions of, and the levers above those measures.
+#
+# Hand-authored, not discovered -- the direction of a business mechanism is domain
+# knowledge, not something to infer from correlation. `forbidden_edges` records
+# the reversals explicitly, so a future discovery routine (or an LLM proposing a
+# graph) has something to be checked against.
+#
+# `controllable` and `owner` are what turn a statistical driver into an actionable
+# lever with decision rights: a finding about Sales Marketing Expenses reaches a
+# named owner who can act, while one about Total Visitors is context, not a lever.
+graph_id: minimal_core_v1
+
+nodes:
+  # --- KPIs (leaves; deterministic functions of their measures) ---
+  - {name: Net Profit Margin, kind: kpi, description: Profit as a share of revenue.}
+  - {name: Conversion Rate, kind: kpi, description: Share of visitors who buy.}
+
+  # --- Measures the KPIs are built from ---
+  - {name: Total Revenue, kind: measure, column: Total Revenue,
+     description: Revenue recognised in the period.}
+  - {name: Total Expenses, kind: measure, column: Total Expenses,
+     description: All costs in the period.}
+  - {name: Number of Sales, kind: measure, column: Number of Sales,
+     description: Completed purchases.}
+  - {name: Total Visitors, kind: measure, column: Total Visitors,
+     description: "Sessions and store entrances. Context, not a lever."}
+
+  # --- Controllable levers ---
+  - {name: Sales Marketing Expenses, kind: measure, column: Sales Marketing Expenses,
+     controllable: true, owner: Growth Marketing, description: Total marketing outlay.}
+  - {name: COGS, kind: measure, column: COGS,
+     controllable: true, owner: Merchandising, description: Direct cost of goods sold.}
+
+edges:
+  # Deterministic: these follow from the KPI formulas, not from an estimate.
+  - {source: Total Revenue, target: Net Profit Margin, relation: deterministic}
+  - {source: Total Expenses, target: Net Profit Margin, relation: deterministic}
+  - {source: Number of Sales, target: Conversion Rate, relation: deterministic}
+  - {source: Total Visitors, target: Conversion Rate, relation: deterministic}
+
+  # Causal: domain mechanisms.
+  - {source: COGS, target: Total Expenses, relation: causal}
+  - {source: Sales Marketing Expenses, target: Total Expenses, relation: causal}
+  - {source: Sales Marketing Expenses, target: Total Visitors, relation: causal,
+     note: Paid acquisition buys traffic.}
+  - {source: Total Visitors, target: Number of Sales, relation: causal}
+  - {source: Number of Sales, target: Total Revenue, relation: causal}
+
+forbidden_edges:
+  # Semantically impossible directions. Rejected at load even if proposed.
+  - [Net Profit Margin, Total Revenue]
+  - [Net Profit Margin, Total Expenses]
+  - [Net Profit Margin, Sales Marketing Expenses]
+  - [Net Profit Margin, COGS]
+  - [Conversion Rate, Total Visitors]
+  - [Conversion Rate, Number of Sales]
+  - [Total Revenue, Number of Sales]
+  - [Number of Sales, Total Visitors]
+  - [Total Expenses, COGS]
+  - [Total Expenses, Sales Marketing Expenses]

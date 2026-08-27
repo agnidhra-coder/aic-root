@@ -1,7 +1,7 @@
 """Runs the whole deterministic pipeline end to end.
 
-    python -m kpi_engine.cli.run_pipeline --entity-keys Region --time-grain week \
-        --dataset data/generated/ad_cost_shock_v1.csv --evaluate
+    python -m kpi_engine.cli.run_pipeline --company acme-retail \
+        --entity-keys Region --time-grain week --evaluate
 """
 
 from __future__ import annotations
@@ -15,16 +15,18 @@ from kpi_engine.cli import (
     profile_series,
     profile_source,
 )
-from kpi_engine.cli._common import banner, new_run_id, resolve
+from kpi_engine.cli._common import banner, new_run_id, open_from_args
+from kpi_engine.tenancy import add_company_argument
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", default="configs/sources/retail_csv.yaml")
-    parser.add_argument("--contract", default="configs/semantics/retail_kpis.yaml")
-    parser.add_argument("--detection", default="configs/detection/default.yaml")
-    parser.add_argument("--eda", default="configs/eda/default.yaml")
-    parser.add_argument("--graph", default="configs/causal/retail_dag.yaml")
+    add_company_argument(parser)
+    parser.add_argument("--source-id", default=None,
+                        help="Which declared source to run. Defaults to the primary.")
+    parser.add_argument("--detection", default=None)
+    parser.add_argument("--eda", default=None)
+    parser.add_argument("--graph", default=None)
     parser.add_argument("--dataset", default=None)
     parser.add_argument("--entity-keys", nargs="*", default=None)
     parser.add_argument("--time-grain", default=None, choices=["day", "week", "month"])
@@ -34,13 +36,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skip-profile", action="store_true")
     parser.add_argument("--skip-eda", action="store_true")
     parser.add_argument("--evaluate", action="store_true", help="Score against ground truth.")
-    parser.add_argument("--truth", default="data/generated/ground_truth.json")
+    parser.add_argument("--truth", default=None)
     args = parser.parse_args(argv)
 
+    paths = open_from_args(args)
     run_id = args.run_id or new_run_id("pipeline")
 
     def shared() -> list[str]:
-        out = ["--source", args.source, "--contract", args.contract, "--run-id", run_id]
+        out = ["--company", args.company, "--run-id", run_id]
+        if args.source_id:
+            out += ["--source-id", args.source_id]
         if args.dataset:
             out += ["--dataset", args.dataset]
         if args.entity_keys:
@@ -53,24 +58,37 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.skip_profile:
         banner("STAGE 0 · PROFILE SOURCE")
-        profile_source.main(["--source", args.source])
+        profile_source.main(
+            ["--company", args.company]
+            + (["--source-id", args.source_id] if args.source_id else [])
+        )
 
     if not args.skip_eda:
         banner("STAGE 1b · SERIES PROFILE (descriptive)")
-        profile_series.main(shared() + ["--eda", args.eda])
+        profile_series.main(shared() + (["--eda", args.eda] if args.eda else []))
 
     banner("STAGE 1-2 · KPI PANEL + ANOMALY DETECTION")
-    detect_anomalies.main(shared() + ["--detection", args.detection])
+    detect_anomalies.main(
+        shared() + (["--detection", args.detection] if args.detection else [])
+    )
 
     banner("STAGE 3 · CAUSAL ATTRIBUTION + EVIDENCE")
-    explain_event.main(shared() + ["--detection", args.detection, "--graph", args.graph,
-                                   "--top", str(args.top)])
+    explain_event.main(
+        shared()
+        + (["--detection", args.detection] if args.detection else [])
+        + (["--graph", args.graph] if args.graph else [])
+        + ["--top", str(args.top)]
+    )
 
-    if args.evaluate and resolve(args.truth).exists():
+    truth = (
+        paths.resolve(args.truth) if args.truth
+        else paths.generated_dir / "ground_truth.json"
+    )
+    if args.evaluate and truth.exists():
         banner("STAGE 4 · EVALUATION")
-        evaluate.main(["--run-id", run_id, "--truth", args.truth])
+        evaluate.main(["--company", args.company, "--run-id", run_id, "--truth", str(truth)])
 
-    print(f"\n\n  Pipeline complete. Artefacts in outputs/{run_id}/")
+    print(f"\n\n  Pipeline complete. Artefacts in {paths.run_dir(run_id, create=False)}")
     return 0
 
 

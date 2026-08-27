@@ -1,0 +1,20 @@
+Category,Key Performance Indicator (KPI),Formula,What It Judges,Key Drivers (How it is Affected),Primary Metric Affected
+Sales & Revenue,Sales per Square Foot,Net Sales / Square Footage,Physical space revenue efficiency.,"Store layout, product placement, passing traffic.",Revenue
+Sales & Revenue,Average Transaction Value (ATV),Total Revenue / Total Transactions,Average spend per purchase event.,"Cross-selling, upselling, promotional bundling.",Revenue
+Sales & Revenue,Units Per Transaction (UPT),Total Units Sold / Total Transactions,Average items bought per visit.,"Product affinity, POS impulse buys.",Revenue
+Sales & Revenue,Conversion Rate,(Number of Sales / Total Visitors) * 100,Percentage of browsers who buy.,"Window displays, UX, staff helpfulness.",Revenue
+Sales & Revenue,Foot & Digital Traffic,Store Entrances OR Website Sessions,Total sales opportunities / brand awareness.,"Location, ad campaigns, SEO, weather.",Revenue
+Inventory & Supply,Sell-Through Rate,(Units Sold / Beginning Inventory) * 100,Specific product/category performance.,"Trend forecasting, promotional pricing.",Revenue
+Customer & Mktg,Customer Lifetime Value (CLV),Purchase Value × Purchase Freq × Lifespan,Total projected revenue per customer.,"Retention rates, upselling, brand advocacy.",Revenue
+Cost & Expenses,Cost of Goods Sold (COGS),Beg. Inventory + Purchases - End. Inventory,Direct costs of producing/buying goods sold.,"Supplier pricing, raw materials, manufacturing efficiency.",Costs
+Customer & Mktg,Customer Acquisition Cost (CAC),Sales & Mktg Expenses / New Customers,Financial cost to acquire a buyer.,"Ad bidding costs, campaign efficiency, organic reach.",Costs
+Cost & Expenses,Inventory Holding Cost,Average Inventory Value * Holding Cost %,Cost of storing unsold stock.,"Warehousing fees, insurance, depreciation.",Costs
+Inventory & Supply,Shrinkage Rate,((Recorded Value - Actual Value) / Retail Sales) * 100,"Loss from theft, fraud, or errors.","Store security, warehouse handling, employee training.",Costs
+Financial Health,Gross Profit,Total Revenue - COGS,Absolute profit before operating expenses.,"COGS efficiency, Revenue drivers.",Profit
+Financial Health,Net Profit,Total Revenue - Total Costs,Absolute bottom-line profit.,All revenue and cost drivers.,Profit
+Inventory & Supply,GMROI,Total Gross Profit / Average Inventory Cost,Profit per dollar invested in stock.,"Vendor pricing, markdown strategies, product demand.",Profit
+Financial Health,Gross Profit Margin,(Gross Profit / Total Revenue) * 100,Percentage margin on direct goods.,"Vendor pricing, raw material costs, discounts.",Margins
+Financial Health,Net Profit Margin,(Net Profit / Total Revenue) * 100,Percentage margin overall.,"Supply chain efficiency, overhead control, pricing power.",Margins
+Customer & Mktg,Return on Ad Spend (ROAS),Revenue from Ads / Cost of Ads,Direct revenue per advertising dollar.,"Ad targeting accuracy, conversion friction.",Margins
+Customer & Mktg,Customer Retention Rate,((End Cust. - New Cust.) / Start Cust.) * 100,Brand loyalty and return rate.,"Customer service, loyalty programs, engagement.",Retention
+Customer & Mktg,Churn Rate,(Customers Lost / Start Customers) * 100,Customer attrition.,"Competitor promotions, quality drops.",Churn

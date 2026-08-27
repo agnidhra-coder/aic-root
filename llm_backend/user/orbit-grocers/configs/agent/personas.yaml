@@ -1,0 +1,48 @@
+# Who is asking, and what that changes.
+#
+# The persona changes *which facts are assembled* and how the report is framed --
+# both decided here, deterministically, before the narrator is called. It does not
+# change the numbers, and it does not license the narrator to reach for evidence a
+# persona is not entitled to see: entitlement is enforced by dropping the facts,
+# not by asking the model to be discreet.
+personas:
+  analyst:
+    label: Analyst
+    brief: >
+      A practitioner who will check your working. State the method by name, say
+      whether each contribution is exact algebra or an estimate, give intervals,
+      and do not round away precision. Assume familiarity with DiD, ITS, DML,
+      Shapley and LMDI; do not explain them.
+    include_facts: [movement, contribution, method, confidence, quality, freshness, link, lever]
+    max_facts: 90
+    include_sections: [what_happened, why, needs_attention, actions, uncertainty, abstained_from]
+    restricted_entitlements: []
+    max_claims_per_section: 6
+
+  exec:
+    label: Executive
+    brief: >
+      A decision-maker with two minutes. Lead with business impact and the single
+      decision in front of them. One number per sentence at most. Name the method
+      only where it changes how much weight the finding deserves. No estimator
+      jargon, no intervals in the body -- put the caveat in `uncertainty` instead.
+    include_facts: [movement, contribution, confidence, link, lever]
+    max_facts: 30
+    include_sections: [what_happened, needs_attention, actions, uncertainty]
+    restricted_entitlements: []
+    max_claims_per_section: 3
+
+  ops:
+    label: Operations
+    brief: >
+      Someone who will act this week. Emphasise the controllable levers, their
+      named owners, and what to watch afterwards. Supply-chain findings matter more
+      here than financial framing. Be concrete about the slice affected -- which
+      region, which category, which supplier.
+    include_facts: [movement, contribution, confidence, link, lever, quality, freshness]
+    max_facts: 60
+    include_sections: [what_happened, why, needs_attention, actions, abstained_from]
+    # Ops sees operational detail but not negotiated commercial terms; the facts
+    # carrying those columns are dropped before the context is built.
+    restricted_entitlements: [Purchase Price Per Unit, Inbound Freight Cost]
+    max_claims_per_section: 5

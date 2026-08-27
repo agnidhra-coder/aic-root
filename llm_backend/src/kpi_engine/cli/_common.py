@@ -1,51 +1,40 @@
-"""Shared CLI plumbing: run directories, argument defaults, console reporting."""
+"""Shared CLI plumbing: company selection, run ids, console reporting.
+
+There are no path defaults here any more. Every command names a company with
+`--company`, and every path it needs comes from that company's `company.yaml` by
+way of `tenancy.CompanyPaths`. A default like
+`configs/sources/retail_csv.yaml` would silently point every tenant at one
+tenant's data.
+"""
 
 from __future__ import annotations
 
 import argparse
 import datetime as dt
-from pathlib import Path
 
 from typing import Any
 
-from kpi_engine.config_io import project_root
-
-DEFAULT_SOURCE = "configs/sources/retail_csv.yaml"
-DEFAULT_CONTRACT = "configs/semantics/retail_kpis.yaml"
-DEFAULT_DETECTION = "configs/detection/default.yaml"
-DEFAULT_EDA = "configs/eda/default.yaml"
-DEFAULT_GRAPH = "configs/causal/retail_dag.yaml"
-
-
-def resolve(path: str | Path) -> Path:
-    """Resolve a path relative to the project root when it is not absolute."""
-    p = Path(path)
-    return p if p.is_absolute() else project_root() / p
+from kpi_engine.tenancy import add_company_argument, open_from_args  # noqa: F401 (re-export)
 
 
 def new_run_id(prefix: str = "run") -> str:
     return f"{prefix}-{dt.datetime.now():%Y%m%d-%H%M%S}"
 
 
-def run_dir(run_id: str, create: bool = True) -> Path:
-    d = resolve("outputs") / run_id
-    if create:
-        d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def latest_run_dir() -> Path:
-    """Most recent run directory, so `explain_event` can default to the last detection."""
-    outputs = resolve("outputs")
-    runs = sorted((d for d in outputs.iterdir() if d.is_dir()), key=lambda d: d.name)
-    if not runs:
-        raise FileNotFoundError("No runs under outputs/. Run detect_anomalies first.")
-    return runs[-1]
-
-
 def add_common_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
-    parser.add_argument("--source", default=DEFAULT_SOURCE, help="Source config YAML.")
-    parser.add_argument("--contract", default=DEFAULT_CONTRACT, help="KPI contract YAML.")
+    """`--company` plus the four flags that shape an analysis.
+
+    `--source-id` names a source the company has *declared*, not a file on disk.
+    That is deliberate: the old `--source`/`--contract` took arbitrary paths, which
+    made "which config does this run use" unanswerable from the company folder and
+    let a caller read any YAML on the machine.
+    """
+    add_company_argument(parser)
+    parser.add_argument(
+        "--source-id",
+        default=None,
+        help="Which declared source to run against. Defaults to the company's primary.",
+    )
     parser.add_argument(
         "--entity-keys",
         nargs="*",
@@ -69,6 +58,13 @@ def apply_overrides(contract, args):
     if getattr(args, "time_grain", None):
         contract = contract.model_copy(update={"time_grain": args.time_grain})
     return contract
+
+
+def selected_source(paths, args) -> str:
+    """The source id this invocation runs against, validated against the company."""
+    source_id = getattr(args, "source_id", None) or paths.primary_source_id
+    paths.spec.binding(source_id)  # raises KeyError naming the declared ids
+    return source_id
 
 
 def banner(title: str) -> None:

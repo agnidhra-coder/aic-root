@@ -1,6 +1,6 @@
 """Stage 1: aggregate raw rows to the contract grain and evaluate every KPI.
 
-    python -m kpi_engine.cli.compute_kpis --entity-keys Region
+    python -m kpi_engine.cli.compute_kpis --company acme-retail --entity-keys Region
 """
 
 from __future__ import annotations
@@ -14,10 +14,9 @@ from kpi_engine.cli._common import (
     banner,
     kv,
     new_run_id,
-    resolve,
-    run_dir,
+    open_from_args,
+    selected_source,
 )
-from kpi_engine.config_io import load_contract, load_source
 from kpi_engine.semantics import build_panel
 from kpi_engine.sources import build_source
 
@@ -29,11 +28,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset", default=None, help="Override the source config's path.")
     args = parser.parse_args(argv)
 
-    spec = load_source(resolve(args.source))
+    paths = open_from_args(args)
+    source_id = selected_source(paths, args)
+    spec = paths.source_spec(source_id)
     if args.dataset:
-        spec = spec.model_copy(update={"path": str(resolve(args.dataset))})
-    contract = apply_overrides(load_contract(resolve(args.contract)), args)
-    source = build_source(spec, base_dir=resolve("."))
+        spec = spec.model_copy(update={"path": str(paths.resolve(args.dataset))})
+    contract = apply_overrides(paths.contract(source_id), args)
+    source = build_source(spec, base_dir=paths.root)
     df = source.load()
 
     panel = build_panel(
@@ -41,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     run_id = args.run_id or new_run_id("kpis")
-    out = run_dir(run_id)
+    out = paths.run_dir(run_id)
     panel.values.to_parquet(out / "kpi_panel.parquet", index=False)
 
     banner(f"KPI PANEL  ·  {contract.contract_id}")

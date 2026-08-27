@@ -9,6 +9,17 @@ disagree about.
 `Strict` is reused from the agent's models, so `extra="forbid"` applies here too
 -- a caller who misspells `time_grain` gets a 422 rather than a silently ignored
 override and a report configured differently from what they asked for.
+
+**No field here names a filesystem path, and none should.** This body used to
+carry nine (`dataset`, `scm`, `source`, `scm_source`, `contract`, `scm_contract`,
+`graph`, `detection`, `personas`), each a project-root-relative string. `Strict`
+guards field *names*; it never guarded their values, so on an unauthenticated API
+they were an arbitrary-file-read surface. A source is now named by the id its
+company declared, and nothing else can name a file over the wire.
+`test_no_ask_field_names_a_path` pins that.
+
+The company is not here either -- it is a path segment,
+`POST /companies/{company}/ask`. It belongs to the route, not to the question.
 """
 
 from __future__ import annotations
@@ -17,8 +28,9 @@ from typing import Any
 
 from pydantic import Field
 
-from kpi_agent.graph import DEFAULT_CONFIG
 from kpi_agent.models import Persona, Strict, TimeGrain
+from kpi_engine.contracts.tenancy import AgentDefaults, CompanySlug, Domain
+from kpi_engine.tenancy import CompanyPaths, company_config
 
 
 class AskRequest(Strict):
@@ -57,19 +69,18 @@ class AskRequest(Strict):
 
     top_events: int = Field(default=5, ge=1, le=50)
     run_id: str | None = Field(
-        default=None, description="Names the directory under outputs/."
+        default=None,
+        # Constrained rather than merely checked on read: this becomes a directory
+        # name, and refusing a bad one at POST is better than 400ing the later GET.
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+        description="Names the directory under the company's outputs/.",
     )
 
-    # Config and dataset overrides, one per CLI flag.
-    dataset: str | None = None
-    scm: str | None = None
-    source: str | None = None
-    scm_source: str | None = None
-    contract: str | None = None
-    scm_contract: str | None = None
-    graph: str | None = None
-    detection: str | None = None
-    personas: str | None = None
+    sources: list[str] | None = Field(
+        default=None,
+        description="Restrict the run to these declared source ids. Omit to use "
+        "every source the company declares.",
+    )
 
     logs: bool = Field(
         default=True,
@@ -84,32 +95,20 @@ class AskRequest(Strict):
     # the baseline and reports a quiet quarter that is really a short one.
 
 
-def build_config(req: AskRequest) -> dict[str, Any]:
-    """`AskRequest` -> the config dict `stream_agent` takes.
+def build_config(paths: CompanyPaths, req: AskRequest) -> dict[str, Any]:
+    """`AskRequest` + a company -> the config dict `stream_agent` takes.
 
-    Same assembly as `cli/ask.py`, so the two front-ends cannot drift on how an
-    override is spelled or on which entry of `sources` a dataset belongs to.
+    Same assembly as `cli/ask.py`, so the two front-ends cannot drift.
     """
-    config = dict(DEFAULT_CONFIG)
-    sources = [dict(s) for s in config["sources"]]
-    if req.source:
-        sources[0]["source"] = req.source
-    if req.contract:
-        sources[0]["contract"] = req.contract
-    if req.dataset:
-        sources[0]["dataset"] = req.dataset
-    if req.scm_source:
-        sources[1]["source"] = req.scm_source
-    if req.scm_contract:
-        sources[1]["contract"] = req.scm_contract
-    if req.scm:
-        sources[1]["dataset"] = req.scm
-    config["sources"] = sources
-
-    for key, value in (("graph", req.graph), ("detection", req.detection),
-                       ("personas", req.personas)):
-        if value:
-            config[key] = value
+    config = dict(company_config(paths))
+    if req.sources is not None:
+        unknown = [s for s in req.sources if s not in paths.spec.source_ids]
+        if unknown:
+            raise ValueError(
+                f"Company '{paths.slug}' declares no source(s) {unknown}. "
+                f"Known: {paths.spec.source_ids}"
+            )
+        config["sources"] = list(req.sources)
 
     config["top_events"] = req.top_events
     # Assigned unconditionally, including `None`: the graph reads these as
@@ -117,3 +116,35 @@ def build_config(req: AskRequest) -> dict[str, Any]:
     config["time_grain"] = req.time_grain
     config["entity_keys"] = req.entity_keys
     return config
+
+
+class CreateCompanyRequest(Strict):
+    """`POST /companies` -- provision a tenant.
+
+    Deliberately bare bones: it carries no KPI fields. A new company's KPIs are
+    whatever its template's `configs/semantics/` declares, copied verbatim.
+    Choosing or editing them per company is separate, later work; wiring it into
+    this body now would mean two places that decide what a company measures.
+
+    A company is created *before* it has data. Its sources come from the template
+    and point at files that do not exist yet, so it reports `awaiting_data` until
+    a CSV is attached at `POST /companies/{company}/sources/{source_id}/data`.
+    """
+
+    company_id: CompanySlug
+    display_name: str = Field(min_length=1)
+    domains: list[Domain] = Field(min_length=1)
+    template: str | None = Field(
+        default=None,
+        description="Which templates/company/<name>/ to seed from. Defaults to the "
+        "first domain that has a template, else `minimal`.",
+    )
+    agent: AgentDefaults | None = Field(
+        default=None, description="Override the template's time_grain/entity_keys/top_events."
+    )
+    supabase_user_ids: list[str] = Field(
+        default_factory=list,
+        description="Supabase `users.id` values that resolve to this company. The "
+        "registry refuses an id already claimed by another tenant.",
+    )
+    notes: str = ""

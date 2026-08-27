@@ -15,6 +15,16 @@ from kpi_engine.contracts.configs import (
     ScenarioSpec,
     SourceSpec,
 )
+from kpi_engine.contracts.tenancy import (
+    AgentDefaults,
+    CompanyConfigPaths,
+    CompanyEntry,
+    CompanyRegistry,
+    CompanySlug,
+    CompanySpec,
+    Domain,
+    SourceBinding,
+)
 from kpi_engine.contracts.payloads import (
     AbstainPayload,
     Attribution,
@@ -39,6 +49,14 @@ __all__ = [
     "MeasureDef",
     "ScenarioSpec",
     "SourceSpec",
+    "AgentDefaults",
+    "CompanyConfigPaths",
+    "CompanyEntry",
+    "CompanyRegistry",
+    "CompanySlug",
+    "CompanySpec",
+    "Domain",
+    "SourceBinding",
     "AbstainPayload",
     "Attribution",
     "Contribution",

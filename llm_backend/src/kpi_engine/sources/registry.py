@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
-
 from kpi_engine.contracts.configs import SourceSpec
 from kpi_engine.sources.base import DataSource
 from kpi_engine.sources.csv_source import CsvSource
@@ -27,14 +25,13 @@ def available_types() -> list[str]:
     return sorted(_REGISTRY)
 
 
-def load_source_spec(path: str | Path) -> SourceSpec:
-    """Read and validate a source YAML. Invalid configs raise before any I/O happens."""
-    with Path(path).open() as fh:
-        return SourceSpec.model_validate(yaml.safe_load(fh))
-
-
 def build_source(spec: SourceSpec, base_dir: str | Path | None = None) -> DataSource:
-    """Instantiate the adapter for `spec`, resolving a relative path against base_dir."""
+    """Instantiate the adapter for `spec`, resolving a relative path against base_dir.
+
+    `base_dir` is the company root. In practice specs arriving from
+    `CompanyPaths.source_spec` already carry an absolute path, so the join below
+    is a fallback for a spec loaded some other way -- not the normal route.
+    """
     if spec.type not in _REGISTRY:
         raise ValueError(f"Unknown source type '{spec.type}'. Registered: {available_types()}")
     resolved = spec

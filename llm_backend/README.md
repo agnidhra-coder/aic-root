@@ -20,13 +20,13 @@ uv sync --extra dev --extra agent --extra cli
 
 # Ask a question. Two model calls at the ends; deterministic engine in between.
 # GOOGLE_API_KEY is read from a gitignored .env.
-uv run python -m kpi_engine.cli.ask "why did margin fall in the West?" --persona ops
+uv run python -m kpi_engine.cli.ask --company acme-retail "why did margin fall in the West?" --persona ops
 
 # Any Gemini model; the default is gemini-3.5-flash-lite.
-uv run python -m kpi_engine.cli.ask "why did ROAS drop?" --model gemini-3.7-flash
+uv run python -m kpi_engine.cli.ask --company acme-retail "why did ROAS drop?" --model gemini-3.7-flash
 
 # The same thing with no API key: broad sweep, template-rendered report.
-uv run python -m kpi_engine.cli.ask "what needs attention?" --persona exec --no-llm
+uv run python -m kpi_engine.cli.ask --company acme-retail "what needs attention?" --persona exec --no-llm
 ```
 
 The `cli` extra adds `rich`, which is what separates the two halves on screen: the
@@ -60,7 +60,7 @@ Two questions that land squarely on the injected scenario:
 # Slicing by Supplier is what gives the estimator a control group -- Northwind is
 # untreated. Slicing by Region instead marks all five regions as affected and
 # collapses confidence, because the disruption is filtered on Supplier.
-uv run python -m kpi_engine.cli.ask \
+uv run python -m kpi_engine.cli.ask --company acme-retail \
   "Net Profit Margin and Inventory Turnover fell in August and September 2026. \
 Did the Kestrel Logistics supplier disruption cause it? Compare Kestrel Logistics \
 against Northwind Foods and trace the path through to COGS." \
@@ -69,7 +69,7 @@ against Northwind Foods and trace the path through to COGS." \
 # The clean one: a West-only ad shock, with four untreated regions as donors.
 # Ground truth puts the CAC split at ln(1.15) : -ln(0.80), so the report is
 # checkable against an arithmetic answer.
-uv run python -m kpi_engine.cli.ask \
+uv run python -m kpi_engine.cli.ask --company acme-retail \
   "Why did CAC rise and ROAS fall in the West region between mid-March and early \
 April 2026, and how much of the CAC move came from marketing spend versus lost \
 new customers?" \
@@ -84,18 +84,17 @@ Or drive the stages directly:
 
 ```bash
 # 0. What is this dataset, really?
-uv run python -m kpi_engine.cli.profile_source
+uv run python -m kpi_engine.cli.profile_source --company acme-retail
 
 # 0b. Manufacture events with known causes (see "Why inject data" below)
-uv run python -m kpi_engine.cli.inject_scenario
+uv run python -m kpi_engine.cli.inject_scenario --company acme-retail
 
 # 0c. Derive the weekly supply-chain source from the sales file
-uv run python -m kpi_engine.cli.generate_scm
+uv run python -m kpi_engine.cli.generate_scm --company acme-retail
 
 # 1-4. Detect, attribute, score
-uv run python -m kpi_engine.cli.run_pipeline \
-    --entity-keys Region --time-grain week \
-    --dataset data/generated/ad_cost_shock_v1.csv --evaluate
+uv run python -m kpi_engine.cli.run_pipeline --company acme-retail \
+    --entity-keys Region --time-grain week --evaluate
 ```
 
 ## Pipeline
@@ -128,7 +127,7 @@ tail noise and causal estimators recover approximately zero. Neither module coul
 be shown to work, or shown to be *calibrated*. So `cli.inject_scenario` stamps
 movements with known causes onto the base data and writes a ground-truth
 manifest, and `cli.evaluate` scores against it. Every threshold in
-`configs/detection/default.yaml` was set by measuring, not by guessing.
+`user/acme-retail/configs/detection/default.yaml` was set by measuring, not by guessing.
 
 **The schema is full of exact redundancy.** `Net Sales == Total Revenue ==
 Retail Sales`, `Number of Sales == Total Transactions`, `Total Gross Profit ==
@@ -252,9 +251,16 @@ src/kpi_engine/
   evidence/    confidence, abstention, bundle, telemetry
   cli/         one executable per stage, plus `ask` for the agent
   pipeline.py  the whole chain in one process, returning objects not files
-configs/       source, semantics, causal, detection, scenarios  (all hand-authored)
+  tenancy.py   CompanyPaths — the one seam between a config string and a path
+  provisioning.py  create a company, give it data
+user/          one folder per tenant: configs, data, outputs. `metadata.yaml` indexes them
+templates/     company seed material, and the KPI reference catalogue
 schemas/       exported JSON Schema — the LLM-facing contract surface
 ```
+
+Every command takes a required `--company`; there is no shared `configs/` or
+`data/` and no default tenant. See `CLAUDE.md` for the layout and `RUNBOOK.md`
+for the flags.
 
 ## Swapping the data source
 
@@ -327,7 +333,7 @@ way back: a fabricated field is refused twice over.
 
 ## Two sources, deliberately mismatched
 
-`data/generated/scm_weekly_v1.csv` is weekly and keyed by supplier; the sales file
+`scm_weekly_v1.csv` is weekly and keyed by supplier; the sales file
 is daily and has no supplier dimension. They do not join. But they are not
 independent either: the supply file's `Units Received` *is* the sales file's
 `Units Sold` aggregated to region × category × week, and its unit price is that

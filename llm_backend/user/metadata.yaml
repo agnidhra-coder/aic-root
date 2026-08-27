@@ -1,0 +1,30 @@
+schema_version: '1.0'
+companies:
+- company_id: acme-retail
+  display_name: Acme Retail Group
+  domains:
+  - retail
+  - supply-chain
+  created_at: '2026-08-28'
+  path: ''
+  active: true
+  external_ids:
+    supabase_user_ids: []
+- company_id: orbit-grocers
+  display_name: Orbit Grocers
+  domains:
+  - other
+  created_at: '2026-08-28'
+  path: ''
+  active: true
+  external_ids:
+    supabase_user_ids: []
+- company_id: testco
+  display_name: Test Fixture Co
+  domains:
+  - retail
+  created_at: '2026-08-28'
+  path: ''
+  active: true
+  external_ids:
+    supabase_user_ids: []

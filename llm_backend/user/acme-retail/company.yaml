@@ -1,0 +1,48 @@
+# The demo tenant: the dataset, contracts and DAG this engine was built and
+# calibrated against. Both README demo questions and every slow test run here.
+#
+# Two sources, and the mismatch between them is the point. `retail_daily` is a
+# daily sales file with no supplier dimension; `scm_weekly` is weekly and keyed by
+# Supplier. Reconciling grains and cadences is part of the problem, and a second
+# source that joined cleanly on a shared key would not exercise it.
+#
+# The primary's `dataset:` override points the retail source definition at the
+# scenario-injected copy. `data/raw/dummy_data.csv` is statistically flat -- no
+# trend, seasonality, or autocorrelation -- so detections on it are noise by
+# construction, and anything that needs real signal reads the injected file
+# instead. Overriding the dataset on the binding is why there is no second source
+# YAML saying the same thing with one line changed.
+company_id: acme-retail
+display_name: Acme Retail Group
+domains: [retail, supply-chain]
+created_at: 2026-08-28
+
+sources:
+  - source_id: retail_daily
+    role: primary
+    domain: retail
+    source: configs/sources/retail_csv.yaml
+    contract: configs/semantics/retail_kpis.yaml
+    dataset: data/generated/ad_cost_shock_v1.csv
+    label: Daily retail sales (ad-cost-shock scenario)
+
+  - source_id: scm_weekly
+    role: secondary
+    domain: supply-chain
+    source: configs/sources/scm_csv.yaml
+    contract: configs/semantics/scm_kpis.yaml
+    label: Weekly supplier receipts
+
+configs:
+  graph: configs/causal/retail_dag.yaml
+  detection: configs/detection/default.yaml
+  eda: configs/eda/default.yaml
+  personas: configs/agent/personas.yaml
+
+agent:
+  # Weekly, not daily. The panel is sampled rather than dense (~5.5 rows per
+  # region-day), so region-level daily ratios are too noisy to model. Grain is
+  # bounded below by noise and above by history.
+  time_grain: week
+  entity_keys: [Region]
+  top_events: 5

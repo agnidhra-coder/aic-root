@@ -2,7 +2,7 @@
   "scenario_id": "ad_cost_shock_v1",
   "description": "A paid-search bidding war localised to one region, followed by a system-wide supplier cost increase. The first has clean control slices; the second does not.\n",
   "base_source_id": "retail_daily",
-  "generated_at": "2026-08-23T23:54:22.937370",
+  "generated_at": "2026-08-28T01:15:57.275480",
   "seed": 42,
   "n_rows": 20000,
   "events": [
@@ -94,5 +94,6 @@
       ]
     }
   ],
-  "dataset_path": "data/generated/ad_cost_shock_v1.csv"
+  "dataset_path": "data/generated/ad_cost_shock_v1.csv",
+  "company_id": "acme-retail"
 }

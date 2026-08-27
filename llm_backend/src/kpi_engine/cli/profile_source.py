@@ -3,30 +3,34 @@
 Run before anything else. Its output tells the causal layer which columns are
 redundant and tells the pipeline which grains are too sparse to model.
 
-    python -m kpi_engine.cli.profile_source --source configs/sources/retail_csv.yaml
+    python -m kpi_engine.cli.profile_source --company acme-retail
 """
 
 from __future__ import annotations
 
 import argparse
 
-from kpi_engine.cli._common import banner, kv, resolve
-from kpi_engine.config_io import load_source, write_json
+from kpi_engine.cli._common import banner, kv, open_from_args, selected_source
+from kpi_engine.config_io import write_json
+from kpi_engine.tenancy import add_company_argument
 from kpi_engine.profiling import profile_source
 from kpi_engine.sources import build_source
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", default="configs/sources/retail_csv.yaml")
+    add_company_argument(parser)
+    parser.add_argument("--source-id", default=None,
+                        help="Which declared source to profile. Defaults to the primary.")
     parser.add_argument("--out", default=None, help="Output JSON path.")
     args = parser.parse_args(argv)
 
-    spec = load_source(resolve(args.source))
-    source = build_source(spec, base_dir=resolve("."))
+    paths = open_from_args(args)
+    spec = paths.source_spec(selected_source(paths, args))
+    source = build_source(spec, base_dir=paths.root)
     profile = profile_source(source)
 
-    out = resolve(args.out) if args.out else resolve(f"outputs/profiles/{spec.source_id}.json")
+    out = paths.resolve(args.out) if args.out else paths.profile_path(spec.source_id)
     write_json(profile, out)
 
     banner(f"DATA PROFILE  ·  {spec.source_id}")

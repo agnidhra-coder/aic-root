@@ -1,0 +1,29 @@
+# Template company. See templates/company/retail/company.yaml for why this is a
+# real `CompanySpec` rather than a placeholder file.
+company_id: template-minimal
+display_name: Minimal template
+domains: [other]
+created_at: 2026-08-28
+notes: >
+  The smallest tenant that still exercises the whole chain: one source, two KPIs,
+  an eight-node DAG. What a new company gets when its shape is not yet known --
+  enough to detect and attribute, little enough to read in one sitting.
+
+sources:
+  - source_id: primary
+    role: primary
+    domain: other
+    source: configs/sources/primary.yaml
+    contract: configs/semantics/kpis.yaml
+    label: Primary extract
+
+configs:
+  graph: configs/causal/dag.yaml
+  detection: configs/detection/default.yaml
+  eda: configs/eda/default.yaml
+  personas: configs/agent/personas.yaml
+
+agent:
+  time_grain: week
+  entity_keys: [Region]
+  top_events: 5

@@ -23,14 +23,31 @@ from kpi_agent.models import Claim, Narrative
 from kpi_api.app import create_app
 from kpi_api.events import collapse
 from kpi_api.models import AskRequest, build_config
+from kpi_engine.tenancy import open_company
 
 from test_agent import StubLlm, _intent
+
+# Two tenants, two jobs. `testco` is the fixture company -- small, and declaring
+# a source called `retail_daily` exactly like acme does, so anything that shares
+# state by source id alone fails here rather than looking plausible. `acme-retail`
+# is used where a test needs a real report to exist.
+FIXTURE = "testco"
+DEMO = "acme-retail"
 
 
 @pytest.fixture(scope="module")
 def client():
     with TestClient(create_app()) as c:
         yield c
+
+
+@pytest.fixture(scope="module")
+def demo_paths():
+    return open_company(DEMO)
+
+
+def _url(path: str, company: str = DEMO) -> str:
+    return f"/companies/{company}{path}"
 
 
 def _body(**kw) -> dict:
@@ -86,7 +103,7 @@ def test_a_misspelled_field_is_refused_rather_than_ignored(client):
     A silently dropped `time_grian` is a report configured differently from what
     the caller asked for, delivered with no indication that it was.
     """
-    response = client.post("/ask/sync", json=_body(time_grian="month"))
+    response = client.post(_url("/ask/sync"), json=_body(time_grian="month"))
     assert response.status_code == 422
 
 
@@ -97,9 +114,10 @@ def test_entity_keys_of_empty_list_means_total_level_not_unset():
     level and is a real choice. A JSON round trip that conflated them would hand
     the graph an override it was never given.
     """
-    assert build_config(AskRequest(question="q", entity_keys=[]))["entity_keys"] == []
-    assert build_config(AskRequest(question="q"))["entity_keys"] is None
-    assert build_config(AskRequest(question="q", time_grain=None))["time_grain"] is None
+    paths = open_company(DEMO)
+    assert build_config(paths, AskRequest(question="q", entity_keys=[]))["entity_keys"] == []
+    assert build_config(paths, AskRequest(question="q"))["entity_keys"] is None
+    assert build_config(paths, AskRequest(question="q", time_grain=None))["time_grain"] is None
 
 
 def test_the_request_mirrors_the_ask_cli():
@@ -107,21 +125,58 @@ def test_the_request_mirrors_the_ask_cli():
     what is computed must be reachable from both."""
     fields = set(AskRequest.model_fields)
     assert {"question", "persona", "time_grain", "entity_keys", "model", "no_llm",
-            "top_events", "run_id", "dataset", "scm", "source", "scm_source",
-            "contract", "scm_contract", "graph", "detection", "personas"} <= fields
+            "top_events", "run_id", "sources", "logs"} <= fields
     # And no date field: a period must reach the pipeline as the planner's
     # report window, never as a load filter that starves the baseline.
     assert not any("date" in f for f in fields)
+    # The company is a path segment, not a body field: it belongs to the route.
+    assert "company" not in fields
+
+
+def test_no_ask_field_names_a_path():
+    """The body used to carry nine project-root-relative path strings, and
+    `extra="forbid"` never guarded their *values* -- on an unauthenticated API
+    that was an arbitrary file read. A source is named by its declared id now.
+
+    This is the inverse of the mirror test above, and it is the one that has to
+    keep holding: adding a path field back would be easy and quiet.
+    """
+    banned = {"dataset", "scm", "source", "scm_source", "contract", "scm_contract",
+              "graph", "detection", "personas", "path", "file", "dir", "out"}
+    assert banned.isdisjoint(AskRequest.model_fields)
 
 
 def test_an_unknown_run_is_a_404_not_a_traceback(client):
-    assert client.get("/runs/no-such-run").status_code == 404
+    assert client.get(_url("/runs/no-such-run")).status_code == 404
+
+
+def test_an_unknown_company_is_a_404_not_a_traceback(client):
+    assert client.get("/companies/no-such-company").status_code == 404
+    assert client.post("/companies/no-such-company/ask", json=_body()).status_code == 404
 
 
 def test_a_run_id_cannot_climb_out_of_outputs(client):
     """`run_id` names a directory, so it is the one field that could read a file
     it was never meant to."""
-    assert client.get("/runs/..%2F..%2F.env").status_code in (400, 404)
+    assert client.get(_url("/runs/..%2F..%2F.env")).status_code in (400, 404)
+
+
+def test_a_run_id_cannot_climb_into_another_company(client, demo_paths):
+    """The guard that matters most once outputs are per-tenant: one company's run
+    id must not resolve into another company's directory."""
+    assert client.get(_url("/runs/..%2Facme-retail", FIXTURE)).status_code in (400, 404)
+    with pytest.raises(Exception):
+        open_company(FIXTURE).artefact("../acme-retail", "agent_report.json")
+
+
+def test_two_companies_sharing_a_source_id_do_not_share_a_profile_cache():
+    """`testco` and `acme-retail` both declare `retail_daily`. The old cache was
+    keyed on that name alone and global, so one tenant's column profile -- and
+    therefore its redundancy findings, which gate what may act as a driver --
+    would have been served to the other."""
+    a, b = open_company(DEMO), open_company(FIXTURE)
+    assert a.profile_path("retail_daily") != b.profile_path("retail_daily")
+    assert not a.profile_path("retail_daily").is_relative_to(b.root)
 
 
 # --------------------------------------------------------------------------- #
@@ -131,7 +186,7 @@ def test_a_run_id_cannot_climb_out_of_outputs(client):
 
 @pytest.mark.slow
 def test_the_stream_carries_every_stage_in_the_order_the_graph_runs_them(client):
-    response = client.post("/ask", json=_body(run_id="pytest-api-stream"))
+    response = client.post(_url("/ask"), json=_body(run_id="pytest-api-stream"))
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
 
@@ -159,7 +214,7 @@ def test_the_stream_carries_every_stage_in_the_order_the_graph_runs_them(client)
 @pytest.mark.slow
 def test_the_stage_log_reaches_the_wire_with_the_engine_model_split(client):
     """The terminal shows which half produced each line. So must the stream."""
-    events = _parse_sse(client.post("/ask", json=_body(run_id="pytest-api-log")).text)
+    events = _parse_sse(client.post(_url("/ask"), json=_body(run_id="pytest-api-log")).text)
     logs = [d for n, d in events if n == "log"]
     assert logs, "no stage log reached the client"
     assert {d["source"] for d in logs} <= {"engine", "model"}
@@ -172,7 +227,7 @@ def test_the_stage_log_reaches_the_wire_with_the_engine_model_split(client):
 @pytest.mark.slow
 def test_logs_can_be_turned_off_without_losing_a_stage(client):
     events = _parse_sse(
-        client.post("/ask", json=_body(logs=False, run_id="pytest-api-nolog")).text
+        client.post(_url("/ask"), json=_body(logs=False, run_id="pytest-api-nolog")).text
     )
     names = [n for n, _ in events]
     assert "log" not in names
@@ -187,7 +242,7 @@ def test_no_dataframe_or_model_object_reaches_the_wire(client):
     `PipelineResult` dataclasses. A payload assembled by dumping state would
     either fail to encode or, worse, succeed -- and become a shape nobody decided.
     """
-    events = _parse_sse(client.post("/ask", json=_body(run_id="pytest-api-leak")).text)
+    events = _parse_sse(client.post(_url("/ask"), json=_body(run_id="pytest-api-leak")).text)
 
     # Reaching here at all is most of the assertion: `_sse` encodes with no
     # `default=` fallback, so a DataFrame or a chat model on any payload would
@@ -210,9 +265,9 @@ def test_the_sync_endpoint_and_the_stream_report_the_same_thing(client):
     """Two endpoints, one projection. Built from the same events rather than
     beside them, so there is nothing to keep in step."""
     streamed = collapse(
-        _parse_sse(client.post("/ask", json=_body(run_id="pytest-api-parity")).text)
+        _parse_sse(client.post(_url("/ask"), json=_body(run_id="pytest-api-parity")).text)
     )
-    synced = client.post("/ask/sync", json=_body(run_id="pytest-api-parity")).json()
+    synced = client.post(_url("/ask/sync"), json=_body(run_id="pytest-api-parity")).json()
 
     assert _timeless(synced["report"]["report_markdown"]) == \
         _timeless(streamed["report"]["report_markdown"])
@@ -226,10 +281,10 @@ def test_a_finished_run_is_readable_afterwards(client):
     """A client that disconnects mid-run has not lost the answer: the artefacts
     are written regardless."""
     run_id = "pytest-api-artefacts"
-    client.post("/ask/sync", json=_body(run_id=run_id))
+    client.post(_url("/ask/sync"), json=_body(run_id=run_id))
 
-    assert client.get(f"/runs/{run_id}").json()["run_id"] == run_id
-    assert client.get(f"/runs/{run_id}/report").text.startswith("#")
+    assert client.get(_url(f"/runs/{run_id}")).json()["run_id"] == run_id
+    assert client.get(_url(f"/runs/{run_id}/report")).text.startswith("#")
 
 
 # --------------------------------------------------------------------------- #
@@ -254,7 +309,7 @@ def test_a_clarification_ends_the_stream_without_a_narrative(monkeypatch):
         sources=["retail_daily"],
         clarification_needed="Which region did you mean by 'the usual one'?",
     ))
-    events = _parse_sse(client.post("/ask", json=_body(
+    events = _parse_sse(client.post(_url("/ask"), json=_body(
         question="how is the usual one doing?", no_llm=False,
         run_id="pytest-api-clarify",
     )).text)
@@ -281,7 +336,7 @@ def test_a_narrative_that_fails_verification_twice_streams_both_attempts(monkeyp
         _intent(sources=["retail_daily"], entity_keys=["Region"]),
         fabricated.model_copy(deep=True), fabricated.model_copy(deep=True),
     )
-    events = _parse_sse(client.post("/ask", json=_body(
+    events = _parse_sse(client.post(_url("/ask"), json=_body(
         no_llm=False, run_id="pytest-api-repair",
     )).text)
 

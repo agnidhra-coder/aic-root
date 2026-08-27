@@ -1,0 +1,19 @@
+# Template source binding. `path` is where `attach_source_data` puts an uploaded
+# CSV; the company is `awaiting_data` until that file exists.
+#
+# Physical binding only. Swapping to a warehouse means changing `type` and `path`
+# and writing one adapter class; nothing downstream of sources/ changes.
+source_id: retail_daily
+type: csv
+path: data/raw/primary.csv
+date_column: Date
+entity_columns:
+  - Region
+  - Channel
+  - Product category
+  - Traffic source
+refresh_cadence: daily
+# `as_of: null` means freshness is measured against the file's mtime. A company
+# with a fixed historical extract should pin a date here instead, so freshness
+# stays deterministic across runs rather than drifting with the wall clock.
+as_of: null

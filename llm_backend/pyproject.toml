@@ -40,7 +40,16 @@ cli = ["rich>=13.7"]
 # at module scope, so an `api` install without it cannot start at all. Declaring
 # the dependency is what makes `uv sync --extra api` produce a working server --
 # `uv sync` is exact and uninstalls whatever extra you did not name.
-api = ["kpi-engine[agent]", "fastapi>=0.115", "uvicorn[standard]>=0.30"]
+#
+# `python-multipart` is FastAPI's form parser. It is a hard requirement, not an
+# optional one: `POST /companies/{c}/sources/{sid}/data` takes an uploaded CSV,
+# and without it FastAPI raises at import time rather than at request time.
+api = [
+    "kpi-engine[agent]",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+]
 
 [build-system]
 requires = ["hatchling"]

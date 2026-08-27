@@ -1,0 +1,65 @@
+# Series-profiling (EDA) parameters.
+#
+# This stage is descriptive: it characterises what a series is doing, it never
+# decides that something is wrong. Nothing downstream branches on its output, so
+# these numbers trade off *readability of the description* rather than precision
+# and recall -- there is no ground truth to calibrate against, and pretending
+# otherwise would be dishonest. Where a threshold governs whether a claim is made
+# at all, it is set conservatively: silence beats a manufactured trend.
+profile_id: default
+
+decomposition:
+  enabled: true
+  period: 7                  # weekly cycle at daily grain; overridden per grain by the CLI
+  robust: true
+  min_periods_required: 3    # need 3 full cycles before STL output is trusted
+
+trend:
+  # Mann-Kendall is rank-based, so it makes no normality assumption and is not
+  # thrown by the heavy tails these ratio KPIs actually have.
+  #
+  # Read the per-series verdicts with the multiple-testing caveat in mind. At
+  # this alpha, measured on 2000 pure-noise series of 105 periods, 4.25% are
+  # called trending -- so a 25-series run expects ~1.1 spurious trend calls, and
+  # seeing two is unremarkable. This stage deliberately does NOT apply an FDR
+  # correction: that would make one series' verdict depend on which other series
+  # happened to be in the run, which is wrong for a per-series description. The
+  # honest fix is to read a single trend call as a hypothesis, not a finding.
+  alpha: 0.05
+  min_periods: 8             # below this a slope estimate is not worth reporting
+  # Two materiality bars, either of which qualifies. Neither works alone:
+  # a rate-only test calls a 0.4%/period drift flat when it compounds to +52%
+  # over two years; a cumulative-only test flags anything measured long enough.
+  flat_slope_pct: 0.5        # material as a rate
+  min_total_change_pct: 5.0  # or material end to end; matches Materiality.min_abs_pct
+
+segments:
+  enabled: true
+  pelt_penalty: 12.0         # same value as configs/detection/default.yaml, deliberately
+  min_segment: 4             # a "phase" shorter than 4 periods is an event, not a phase
+  max_segments: 6            # a narrator that has to describe 20 phases describes none
+
+# Fewer periods than this and the profile is marked unusable rather than
+# characterised. Mirrors the abstention philosophy in evidence/abstention.py:
+# an honest "not enough history" is more useful than a confident slope on 5 points.
+min_history: 12
+
+# Below this Hyndman-Wang strength, report no seasonality.
+#
+# Calibrated against a measured null, not guessed. Fitting STL to 300 pure white
+# noise series at each shape the pipeline actually produces gives:
+#
+#   n=104, period=4  (weekly grain)  mean 0.173  p95 0.336  p99 0.371  max 0.424
+#   n=730, period=7  (daily grain)   mean 0.202  p95 0.265  p99 0.290  max 0.328
+#
+# Seasonal strength is upward-biased on short series: STL will always fit *some*
+# repeating wiggle, so "strength > 0" is not evidence of a cycle. An earlier 0.30
+# floor sat inside that noise distribution and duly claimed seasonality on three
+# series of the verified-flat dummy data. 0.45 clears the p99 of both shapes and
+# the observed maximum, so a claimed cycle is one noise does not manufacture.
+# Real seasonality is far above this -- an injected sine scores >0.8.
+seasonality_floor: 0.45
+
+# Descriptive only -- the share of points a modified z-score would call extreme.
+# Matches the detection config's z_threshold so the two stages tell the same story.
+outlier_z: 3.5

@@ -19,17 +19,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import yaml
-
 from kpi_engine.causal.dag import CausalGraph
 from kpi_engine.contracts.payloads import EvidenceBundle, Freshness, SeriesProfile
 
 from kpi_agent.models import CrossSourceLink, Fact, GroundedContext
-
-
-def load_personas(path) -> dict[str, dict[str, Any]]:
-    with open(path) as fh:
-        return yaml.safe_load(fh)["personas"]
 
 
 class FactBuilder:

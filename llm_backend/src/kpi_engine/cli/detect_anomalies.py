@@ -1,7 +1,6 @@
 """Stage 2: detect anomalies and cluster them into event windows.
 
-    python -m kpi_engine.cli.detect_anomalies --entity-keys Region \
-        --dataset data/generated/ad_cost_shock_v1.csv
+    python -m kpi_engine.cli.detect_anomalies --company acme-retail --entity-keys Region
 """
 
 from __future__ import annotations
@@ -15,10 +14,10 @@ from kpi_engine.cli._common import (
     banner,
     kv,
     new_run_id,
-    resolve,
-    run_dir,
+    open_from_args,
+    selected_source,
 )
-from kpi_engine.config_io import load_contract, load_detection, load_source, read_json, write_json
+from kpi_engine.config_io import load_detection, read_json, write_json
 from kpi_engine.contracts.payloads import DataProfile
 from kpi_engine.detection.runner import run_detection
 from kpi_engine.detection.windowing import build_event_windows
@@ -30,22 +29,27 @@ from kpi_engine.sources import build_source
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     add_common_args(parser)
-    parser.add_argument("--detection", default="configs/detection/default.yaml")
+    parser.add_argument("--detection", default=None,
+                        help="Override the company's detection config.")
     parser.add_argument("--dataset", default=None, help="Override the source config's path.")
     parser.add_argument("--run-id", default=None)
     args = parser.parse_args(argv)
 
-    spec = load_source(resolve(args.source))
+    paths = open_from_args(args)
+    source_id = selected_source(paths, args)
+    spec = paths.source_spec(source_id)
     if args.dataset:
-        spec = spec.model_copy(update={"path": str(resolve(args.dataset))})
-    contract = apply_overrides(load_contract(resolve(args.contract)), args)
-    detection = load_detection(resolve(args.detection))
+        spec = spec.model_copy(update={"path": str(paths.resolve(args.dataset))})
+    contract = apply_overrides(paths.contract(source_id), args)
+    detection = (
+        load_detection(paths.resolve(args.detection)) if args.detection else paths.detection()
+    )
 
-    source = build_source(spec, base_dir=resolve("."))
+    source = build_source(spec, base_dir=paths.root)
     df = source.load()
     panel = build_panel(df, contract, spec.date_column, args.kpis, args.entity_keys)
 
-    profile_path = resolve(f"outputs/profiles/{spec.source_id}.json")
+    profile_path = paths.profile_path(spec.source_id)
     if profile_path.exists():
         profile = DataProfile.model_validate(read_json(profile_path))
     else:
@@ -60,7 +64,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     run_id = args.run_id or new_run_id("detect")
-    out = run_dir(run_id)
+    out = paths.run_dir(run_id)
     panel.values.to_parquet(out / "kpi_panel.parquet", index=False)
     write_json([f.model_dump(mode="json") for f in result.flags], out / "flags.json")
     write_json([e.model_dump(mode="json") for e in events], out / "events.json")

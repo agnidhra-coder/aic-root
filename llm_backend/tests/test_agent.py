@@ -19,13 +19,7 @@ import pandas as pd
 import pytest
 
 from kpi_engine.causal.dag import CausalGraph
-from kpi_engine.config_io import (
-    load_contract,
-    load_detection,
-    load_graph,
-    load_source,
-    project_root,
-)
+from kpi_engine.tenancy import company_config, open_company
 from kpi_engine.contracts.payloads import (
     EventWindow,
     Lineage,
@@ -48,7 +42,11 @@ from kpi_agent.models import (
 )
 from kpi_agent.verify import verify
 
-ROOT = project_root()
+# The demo tenant. Every path a test needs comes from here, so a test can no
+# longer name a config or a dataset by a project-relative string -- which is
+# exactly the thing the restructure removed from `src/`.
+DEMO = open_company("acme-retail")
+PRIMARY = DEMO.primary_source_id
 
 
 # --------------------------------------------------------------------------- #
@@ -58,7 +56,7 @@ ROOT = project_root()
 
 @pytest.fixture(scope="module")
 def graph():
-    return CausalGraph(load_graph(ROOT / "configs/causal/retail_dag.yaml"))
+    return DEMO.graph()
 
 
 @pytest.fixture
@@ -269,15 +267,12 @@ def source_triples():
     from kpi_engine.sources import build_source
 
     out = []
-    for src, con in [
-        ("configs/sources/retail_csv.yaml", "configs/semantics/retail_kpis.yaml"),
-        ("configs/sources/scm_csv.yaml", "configs/semantics/scm_kpis.yaml"),
-    ]:
-        spec = load_source(ROOT / src)
-        contract = load_contract(ROOT / con)
-        source = build_source(spec, base_dir=ROOT)
+    for source_id in DEMO.spec.source_ids:
+        spec = DEMO.source_spec(source_id)
+        contract = DEMO.contract(source_id)
+        source = build_source(spec, base_dir=DEMO.root)
         df = source.load()
-        out.append((spec, contract, load_or_build_profile(source, df, spec.source_id)))
+        out.append((spec, contract, load_or_build_profile(DEMO, source, df, spec.source_id)))
     return out
 
 
@@ -366,8 +361,8 @@ def _event(event_id, kpi, entity, start, end, source_id="retail_daily") -> Event
 @pytest.fixture(scope="module")
 def contracts():
     return (
-        load_contract(ROOT / "configs/semantics/retail_kpis.yaml"),
-        load_contract(ROOT / "configs/semantics/scm_kpis.yaml"),
+        DEMO.contract("retail_daily"),
+        DEMO.contract("scm_weekly"),
     )
 
 
@@ -426,7 +421,7 @@ def test_a_gap_beyond_the_lag_tolerance_breaks_the_link(graph, contracts):
 
 @pytest.fixture(scope="module")
 def scm_frame():
-    sales = pd.read_csv(ROOT / "data/generated/ad_cost_shock_v1.csv")
+    sales = pd.read_csv(DEMO.source_spec(PRIMARY).path)
     frame, manifest = generate_scm_panel(
         sales, seed=42,
         disruption_start=dt.date(2026, 8, 10), disruption_end=dt.date(2026, 9, 7),
@@ -469,7 +464,7 @@ def test_the_disruption_actually_degrades_the_supplier_it_names(scm_frame):
 
 def test_generation_is_reproducible_from_its_seed(scm_frame):
     frame, _ = scm_frame
-    sales = pd.read_csv(ROOT / "data/generated/ad_cost_shock_v1.csv")
+    sales = pd.read_csv(DEMO.source_spec(PRIMARY).path)
     again, _ = generate_scm_panel(
         sales, seed=42,
         disruption_start=dt.date(2026, 8, 10), disruption_end=dt.date(2026, 9, 7),
@@ -482,19 +477,12 @@ def test_generation_is_reproducible_from_its_seed(scm_frame):
 # --------------------------------------------------------------------------- #
 
 
+# Derived from the company rather than restated. This used to be a verbatim
+# third copy of the agent's default config, so a config change had to be applied
+# in three places or this file quietly tested something else.
 SMALL_CONFIG = {
-    "sources": [
-        {"source": "configs/sources/retail_csv.yaml",
-         "contract": "configs/semantics/retail_kpis.yaml",
-         "dataset": "data/generated/ad_cost_shock_v1.csv"},
-        {"source": "configs/sources/scm_csv.yaml",
-         "contract": "configs/semantics/scm_kpis.yaml"},
-    ],
-    "primary_source_id": "retail_daily",
-    "graph": "configs/causal/retail_dag.yaml",
-    "detection": "configs/detection/default.yaml",
-    "eda": "configs/eda/default.yaml",
-    "personas": "configs/agent/personas.yaml",
+    **company_config(DEMO),
+    "sources": [PRIMARY],
     "time_grain": "week",
     "entity_keys": ["Region"],
     "top_events": 2,
@@ -560,7 +548,7 @@ def test_streaming_the_graph_reproduces_what_invoke_returns():
 
     nodes, streamed = [], {}
     for node, streamed in stream_agent(
-        "what needs attention?", llm=fresh(), persona="analyst",
+        "what needs attention?", company=DEMO, llm=fresh(), persona="analyst",
         run_id="pytest-stream-parity", config=SMALL_CONFIG,
     ):
         nodes.append(node)
@@ -642,23 +630,23 @@ def test_in_process_pipeline_reproduces_the_cli_chain():
     were measured against, and nothing else would notice.
     """
     from kpi_engine.cli.detect_anomalies import main as detect_main
-    from kpi_engine.config_io import load_eda, read_json
-    from kpi_engine.pipeline import run_pipeline, run_dir
+    from kpi_engine.config_io import read_json
+    from kpi_engine.pipeline import run_pipeline
 
     detect_main([
+        "--company", DEMO.slug,
         "--entity-keys", "Region", "--time-grain", "week",
-        "--dataset", "data/generated/ad_cost_shock_v1.csv",
         "--run-id", "pytest-cli-parity",
     ])
-    cli_events = read_json(run_dir("pytest-cli-parity") / "events.json")
+    cli_events = read_json(DEMO.run_dir("pytest-cli-parity") / "events.json")
 
     result = run_pipeline(
-        load_source(ROOT / "configs/sources/retail_csv.yaml"),
-        load_contract(ROOT / "configs/semantics/retail_kpis.yaml"),
-        load_detection(ROOT / "configs/detection/default.yaml"),
+        DEMO.source_spec(PRIMARY),
+        DEMO.contract(PRIMARY),
+        DEMO.detection(),
+        paths=DEMO,
         run_id="pytest-inprocess-parity",
-        eda=load_eda(ROOT / "configs/eda/default.yaml"),
-        dataset="data/generated/ad_cost_shock_v1.csv",
+        eda=DEMO.eda(),
         entity_keys=["Region"], time_grain="week",
     )
 
@@ -676,17 +664,16 @@ def test_the_deepest_grain_still_abstains():
     Region x Channel x Category averages about one row per cell. If the engine ever
     produced a clean explanation there, something has stopped respecting support.
     """
-    from kpi_engine.config_io import load_eda
     from kpi_engine.pipeline import run_pipeline
 
     result = run_pipeline(
-        load_source(ROOT / "configs/sources/retail_csv.yaml"),
-        load_contract(ROOT / "configs/semantics/retail_kpis.yaml"),
-        load_detection(ROOT / "configs/detection/default.yaml"),
+        DEMO.source_spec(PRIMARY),
+        DEMO.contract(PRIMARY),
+        DEMO.detection(),
+        paths=DEMO,
         run_id="pytest-thin-grain",
-        graph=CausalGraph(load_graph(ROOT / "configs/causal/retail_dag.yaml")),
-        eda=load_eda(ROOT / "configs/eda/default.yaml"),
-        dataset="data/generated/ad_cost_shock_v1.csv",
+        graph=DEMO.graph(),
+        eda=DEMO.eda(),
         entity_keys=["Region", "Channel", "Product category"],
         time_grain="week", top_events=3,
     )
@@ -886,22 +873,17 @@ def test_a_report_window_scopes_the_answer_without_starving_the_baseline():
     to have an opinion. `report_window` detects over everything and filters events
     at the end, which is what a question about a period actually means.
     """
-    from kpi_engine.config_io import load_eda
     from kpi_engine.pipeline import run_pipeline
 
-    args = dict(
-        eda=load_eda(ROOT / "configs/eda/default.yaml"),
-        dataset="data/generated/ad_cost_shock_v1.csv",
-        entity_keys=[], time_grain="month",
-    )
+    args = dict(eda=DEMO.eda(), entity_keys=[], time_grain="month")
     window = (dt.date(2026, 10, 1), dt.date(2026, 12, 31))
 
     def _run(run_id, **extra):
         return run_pipeline(
-            load_source(ROOT / "configs/sources/retail_csv.yaml"),
-            load_contract(ROOT / "configs/semantics/retail_kpis.yaml"),
-            load_detection(ROOT / "configs/detection/default.yaml"),
-            run_id=run_id, **args, **extra,
+            DEMO.source_spec(PRIMARY),
+            DEMO.contract(PRIMARY),
+            DEMO.detection(),
+            paths=DEMO, run_id=run_id, **args, **extra,
         )
 
     starved = _run("pytest-window-load", date_range=window)

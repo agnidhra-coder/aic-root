@@ -1,0 +1,29 @@
+# Template company. See templates/company/retail/company.yaml for why this is a
+# real `CompanySpec` rather than a placeholder file.
+company_id: template-supply-chain
+display_name: Supply-chain template
+domains: [supply-chain]
+created_at: 2026-08-28
+notes: >
+  A supply-chain tenant: one weekly source keyed by Supplier. The grain is weekly
+  because the source is -- a supplier file that reports once a week cannot be
+  detected on daily.
+
+sources:
+  - source_id: scm_weekly
+    role: primary
+    domain: supply-chain
+    source: configs/sources/primary.yaml
+    contract: configs/semantics/kpis.yaml
+    label: Weekly supplier extract
+
+configs:
+  graph: configs/causal/dag.yaml
+  detection: configs/detection/default.yaml
+  eda: configs/eda/default.yaml
+  personas: configs/agent/personas.yaml
+
+agent:
+  time_grain: week
+  entity_keys: [Supplier]
+  top_events: 5

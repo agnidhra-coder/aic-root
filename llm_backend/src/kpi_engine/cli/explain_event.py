@@ -1,7 +1,8 @@
 """Stage 3: attribute a detected event to its drivers and emit an evidence bundle.
 
-    python -m kpi_engine.cli.explain_event --run-id d-reg-wk --event-id EV-West-...
-    python -m kpi_engine.cli.explain_event --run-id d-reg-wk --top 3
+    python -m kpi_engine.cli.explain_event --company acme-retail --run-id d-reg-wk \
+        --event-id EV-West-...
+    python -m kpi_engine.cli.explain_event --company acme-retail --top 3
 """
 
 from __future__ import annotations
@@ -17,18 +18,10 @@ from kpi_engine.cli._common import (
     apply_overrides,
     banner,
     kv,
-    latest_run_dir,
-    resolve,
-    run_dir,
+    open_from_args,
+    selected_source,
 )
-from kpi_engine.config_io import (
-    load_contract,
-    load_detection,
-    load_graph,
-    load_source,
-    read_json,
-    write_json,
-)
+from kpi_engine.config_io import load_detection, load_graph, read_json, write_json
 from kpi_engine.contracts.payloads import DataProfile, EventWindow
 from kpi_engine.evidence import Telemetry, build_evidence_bundle, score_confidence
 from kpi_engine.semantics import build_panel
@@ -48,34 +41,40 @@ def _pre_period_count(panel: pd.DataFrame, event: EventWindow) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     add_common_args(parser)
-    parser.add_argument("--detection", default="configs/detection/default.yaml")
-    parser.add_argument("--graph", default="configs/causal/retail_dag.yaml")
+    parser.add_argument("--detection", default=None,
+                        help="Override the company's detection config.")
+    parser.add_argument("--graph", default=None,
+                        help="Override the company's causal DAG.")
     parser.add_argument("--run-id", default=None, help="Detection run to read; defaults to latest.")
     parser.add_argument("--event-id", default=None, help="Explain one event.")
     parser.add_argument("--top", type=int, default=3, help="Explain the N highest-scoring events.")
     parser.add_argument("--dataset", default=None)
     args = parser.parse_args(argv)
 
-    out = run_dir(args.run_id) if args.run_id else latest_run_dir()
+    paths = open_from_args(args)
+    out = paths.run_dir(args.run_id) if args.run_id else paths.latest_run_dir()
     events = [EventWindow.model_validate(e) for e in read_json(out / "events.json")]
     if not events:
         print(f"No events in {out}. Nothing to explain.")
         return 0
 
-    spec = load_source(resolve(args.source))
+    source_id = selected_source(paths, args)
+    spec = paths.source_spec(source_id)
     if args.dataset:
-        spec = spec.model_copy(update={"path": str(resolve(args.dataset))})
-    contract = apply_overrides(load_contract(resolve(args.contract)), args)
-    detection = load_detection(resolve(args.detection))
-    graph = CausalGraph(load_graph(resolve(args.graph)))
+        spec = spec.model_copy(update={"path": str(paths.resolve(args.dataset))})
+    contract = apply_overrides(paths.contract(source_id), args)
+    detection = (
+        load_detection(paths.resolve(args.detection)) if args.detection else paths.detection()
+    )
+    graph = CausalGraph(load_graph(paths.resolve(args.graph))) if args.graph else paths.graph()
 
     telemetry = Telemetry(
         run_id=out.name,
         dataset=spec.path,
-        configs={"contract": args.contract, "graph": args.graph, "detection": args.detection},
+        configs={"company": paths.slug, "source_id": source_id},
     )
 
-    source = build_source(spec, base_dir=resolve("."))
+    source = build_source(spec, base_dir=paths.root)
     with telemetry.stage("load_source") as box:
         raw = source.load()
         box["rows_out"] = len(raw)
@@ -85,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         panel = build_panel(raw, contract, spec.date_column, args.kpis, entity_keys)
         box["rows_out"] = len(panel.values)
 
-    profile_path = resolve(f"outputs/profiles/{spec.source_id}.json")
+    profile_path = paths.profile_path(spec.source_id)
     profile = DataProfile.model_validate(read_json(profile_path)) if profile_path.exists() else None
     blocked = profile.blocked_driver_columns() if profile else set()
     freshness = source.freshness()

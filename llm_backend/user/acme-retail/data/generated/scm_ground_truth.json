@@ -3,7 +3,7 @@
   "description": "Weekly supplier performance derived from the sales file's unit volumes and cost of goods, carrying a planted supplier disruption whose sales-side consequence is the system-wide COGS event.",
   "base_source_id": "scm_weekly",
   "derived_from": "retail_daily",
-  "generated_at": "2026-08-25T00:20:46.376199",
+  "generated_at": "2026-08-28T01:16:08.355091",
   "seed": 42,
   "n_rows": 5248,
   "suppliers": [

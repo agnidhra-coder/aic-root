@@ -6,8 +6,8 @@ fine for a terminal but useless to a caller that already holds the loaded config
 and wants the objects back -- which is exactly what the agent layer needs.
 
 Every stage core is already pure and silent, so this module is wiring, not
-analytics. It writes the same artefacts to `outputs/<run_id>/` as the CLIs do, so
-a run driven from here stays inspectable by the same tooling.
+analytics. It writes the same artefacts to `user/<company>/outputs/<run_id>/` as
+the CLIs do, so a run driven from here stays inspectable by the same tooling.
 
 No LLM is involved here, and none ever should be. This is the deterministic side
 of the boundary; `kpi_agent` is the other side.
@@ -22,7 +22,7 @@ from pathlib import Path
 import pandas as pd
 
 from kpi_engine.causal.dag import CausalGraph
-from kpi_engine.config_io import project_root, read_json, write_json
+from kpi_engine.config_io import read_json, write_json
 from kpi_engine.contracts.configs import DetectionSpec, EdaSpec, KpiContract, SourceSpec
 from kpi_engine.contracts.payloads import (
     DataProfile,
@@ -40,6 +40,7 @@ from kpi_engine.profiling import profile_source
 from kpi_engine.semantics import build_panel
 from kpi_engine.semantics.panel import KpiPanel
 from kpi_engine.sources import build_source
+from kpi_engine.tenancy import CompanyPaths
 
 # Detection deliberately does NOT make its STL period grain-aware, though
 # `eda/runner.py` does for its own decomposition. Setting period=4 at weekly grain
@@ -72,21 +73,17 @@ class PipelineResult:
         return next((b for b in self.bundles if b.event_id == event_id), None)
 
 
-def resolve_path(path: str | Path) -> Path:
-    p = Path(path)
-    return p if p.is_absolute() else project_root() / p
+def load_or_build_profile(
+    paths: CompanyPaths, source, df: pd.DataFrame, source_id: str
+) -> DataProfile:
+    """Reuse this company's cached profile, or compute and cache it.
 
-
-def run_dir(run_id: str, create: bool = True) -> Path:
-    d = project_root() / "outputs" / run_id
-    if create:
-        d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def load_or_build_profile(source, df: pd.DataFrame, source_id: str) -> DataProfile:
-    """Reuse the cached profile the CLIs write, or compute and cache it."""
-    path = project_root() / "outputs" / "profiles" / f"{source_id}.json"
+    Company-scoped, not global. Two tenants may legitimately name a source
+    `retail_daily`; a cache keyed on that name alone would hand one company's
+    column profile -- and therefore its redundancy findings, which gate what may
+    act as a causal driver -- to the other.
+    """
+    path = paths.profile_path(source_id)
     if path.exists():
         return DataProfile.model_validate(read_json(path))
     profile = profile_source(source, df)
@@ -108,6 +105,7 @@ def run_pipeline(
     contract: KpiContract,
     detection: DetectionSpec,
     *,
+    paths: CompanyPaths,
     run_id: str,
     graph: CausalGraph | None = None,
     eda: EdaSpec | None = None,
@@ -123,6 +121,10 @@ def run_pipeline(
 ) -> PipelineResult:
     """Profile -> panel -> [series profile] -> detect -> attribute, in one process.
 
+    `paths` is the company this run belongs to. It decides where artefacts land,
+    where the profile cache is read from, and what a relative `dataset` resolves
+    against -- so a run can never write into, or read from, another tenant.
+
     `graph` is required to attribute; without it the run stops after detection and
     `bundles` comes back empty. `eda` is optional -- the series profiles describe
     and nothing downstream reads them, so skipping them changes no other output.
@@ -137,20 +139,20 @@ def run_pipeline(
     callers who genuinely cannot afford to read the rest.
     """
     if dataset:
-        spec = spec.model_copy(update={"path": str(resolve_path(dataset))})
+        spec = spec.model_copy(update={"path": str(paths.resolve(dataset))})
     if time_grain:
         contract = contract.model_copy(update={"time_grain": time_grain})
 
-    out = run_dir(run_id) if write_artefacts else run_dir(run_id, create=False)
+    out = paths.run_dir(run_id, create=write_artefacts)
     telemetry = telemetry or Telemetry(run_id=run_id, dataset=spec.path)
 
-    source = build_source(spec, base_dir=project_root())
+    source = build_source(spec, base_dir=paths.root)
     with telemetry.stage("load_source") as box:
         raw = source.load(date_range=date_range)
         box["rows_out"] = len(raw)
 
     with telemetry.stage("profile_source", rows_in=len(raw)) as box:
-        profile = load_or_build_profile(source, raw, spec.source_id)
+        profile = load_or_build_profile(paths, source, raw, spec.source_id)
         box["rows_out"] = len(profile.columns)
 
     with telemetry.stage("build_panel", rows_in=len(raw)) as box:

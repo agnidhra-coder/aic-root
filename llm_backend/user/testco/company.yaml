@@ -1,0 +1,26 @@
+company_id: testco
+display_name: Test Fixture Co
+domains:
+- retail
+created_at: '2026-08-28'
+schema_version: '1.0'
+sources:
+- source_id: retail_daily
+  role: primary
+  domain: retail
+  source: configs/sources/primary.yaml
+  contract: configs/semantics/kpis.yaml
+  dataset: null
+  label: Daily retail extract
+configs:
+  graph: configs/causal/dag.yaml
+  detection: configs/detection/default.yaml
+  eda: configs/eda/default.yaml
+  personas: configs/agent/personas.yaml
+agent:
+  time_grain: week
+  entity_keys:
+  - Region
+  top_events: 5
+  default_persona: null
+notes: ''

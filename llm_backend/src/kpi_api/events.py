@@ -23,6 +23,7 @@ from kpi_agent import render
 from kpi_agent.graph import stream_agent
 from kpi_agent.llm import DEFAULT_MODEL
 
+from kpi_engine.tenancy import CompanyPaths
 from kpi_api.models import AskRequest, build_config
 
 # A run ends in one of three terminal nodes, all of them honest outcomes.
@@ -32,7 +33,11 @@ Event = tuple[str, dict[str, Any]]
 
 
 def ask_events(
-    req: AskRequest, llm: Any = None, *, run_id: str | None = None
+    req: AskRequest,
+    llm: Any = None,
+    *,
+    paths: CompanyPaths,
+    run_id: str | None = None,
 ) -> Iterator[Event]:
     """Run the agent, yielding `(event_name, payload)` as each stage completes.
 
@@ -41,13 +46,14 @@ def ask_events(
     summary should end by saying what went wrong, not by closing silently.
     """
     started = time.monotonic()
-    config = build_config(req)
+    config = build_config(paths, req)
     # Settled here rather than left to the graph, so the very first event can
     # name the directory the run will write to and a client can poll for it.
     run_id = run_id or req.run_id or f"ask-{dt.datetime.now():%Y%m%d-%H%M%S}"
 
     yield "started", {
         "run_id": run_id,
+        "company": paths.slug,
         "question": req.question,
         "persona": req.persona,
         "model": None if req.no_llm else (req.model or DEFAULT_MODEL),
@@ -62,7 +68,7 @@ def ask_events(
 
     try:
         for node, state in stream_agent(
-            req.question, llm=llm, persona=req.persona,
+            req.question, company=paths, llm=llm, persona=req.persona,
             run_id=run_id, config=config,
         ):
             final_run_id = state.get("run_id", run_id)

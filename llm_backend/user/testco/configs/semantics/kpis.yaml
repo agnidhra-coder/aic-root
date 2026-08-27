@@ -1,0 +1,96 @@
+# KPI semantic contract.
+#
+# Formulas transcribed from data/raw/KPI_doc.xlsx. Each KPI declares its base
+# measures separately from the arithmetic, which forces ratio-of-sums: measures
+# are aggregated to the grain first, then the expression runs on those sums.
+# Averaging per-row ratios instead would give a different and wrong answer
+# whenever denominators vary across rows.
+#
+# `expression` is parsed by the restricted AST evaluator in
+# semantics/expressions.py, never by eval(). That is what makes it safe to accept
+# an LLM-authored contract here later.
+contract_id: retail_core_v1
+source_id: retail_daily
+time_grain: day
+entity_keys: []          # total-level by default; CLIs override with --entity-keys
+
+# guards.min_rows_per_cell is set to 3, not higher: the panel is sampled rather than
+# dense (~5.5 rows per region-day), so demanding 5 would blank a third of region-days
+# and punch gaps through the very series the detectors need to be continuous. Thin
+# cells are kept and their low support is carried into the confidence score instead,
+# which is the honest place for it.
+
+restricted_columns:
+  # Withheld from personas without finance entitlement; recorded in lineage so
+  # the redaction is auditable rather than silent.
+  - Cash
+  - Marketable Securities
+  - Accounts Receivable
+  - Current Liabilities
+  - Current Assets
+
+kpis:
+  - name: CAC
+    category: Customer & Marketing
+    description: Financial cost to acquire a buyer.
+    measures:
+      spend: {column: Sales Marketing Expenses, agg: sum}
+      new_customers: {column: New Customers, agg: sum}
+    expression: spend / new_customers
+    unit: currency
+    direction: lower_is_better
+    drivers: [Ad bidding costs, Campaign efficiency, Organic reach]
+    materiality: {min_abs_pct: 5.0, min_business_impact: 2.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+
+  - name: ROAS
+    category: Customer & Marketing
+    description: Direct revenue per advertising dollar.
+    measures:
+      revenue_from_ads: {column: Revenue From Ads, agg: sum}
+      cost_of_ads: {column: Cost Of Ads, agg: sum}
+    expression: revenue_from_ads / cost_of_ads
+    unit: ratio
+    direction: higher_is_better
+    drivers: [Ad targeting accuracy, Conversion friction]
+    materiality: {min_abs_pct: 5.0, min_business_impact: 0.15}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+
+  - name: Net Profit Margin
+    category: Financial Health
+    description: Bottom-line profitability.
+    measures:
+      total_revenue: {column: Total Revenue, agg: sum}
+      total_expenses: {column: Total Expenses, agg: sum}
+    expression: (total_revenue - total_expenses) / total_revenue * 100
+    unit: percent
+    direction: higher_is_better
+    drivers: [Supply chain efficiency, Overhead control, Pricing power]
+    materiality: {min_abs_pct: 3.0, min_business_impact: 0.5}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+
+  - name: Conversion Rate
+    category: Sales & Revenue
+    description: Percentage of browsers who buy.
+    measures:
+      number_of_sales: {column: Number of Sales, agg: sum}
+      total_visitors: {column: Total Visitors, agg: sum}
+    expression: number_of_sales / total_visitors * 100
+    unit: percent
+    direction: higher_is_better
+    drivers: [Window displays, UX, Staff helpfulness, Product availability]
+    materiality: {min_abs_pct: 4.0, min_business_impact: 0.15}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+
+  - name: Inventory Turnover
+    category: Inventory & Supply
+    description: Speed of stock replacement.
+    measures:
+      cogs: {column: COGS, agg: sum}
+      avg_inventory_value: {column: Avg Inventory Value, agg: sum}
+    expression: cogs / avg_inventory_value
+    unit: ratio
+    direction: higher_is_better
+    drivers: [Demand forecasting, Seasonal trends, Supply chain delays]
+    materiality: {min_abs_pct: 5.0, min_business_impact: 0.05}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}

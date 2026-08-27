@@ -1,0 +1,15 @@
+# Template source binding. `path` is where `attach_source_data` puts an uploaded
+# CSV; the company is `awaiting_data` until that file exists.
+#
+# The minimal template assumes only what every retail-shaped extract carries: a
+# date, a region, and the four columns the two KPIs below are built from. A
+# tenant whose file has more dimensions should add them here after seeding --
+# `entity_columns` is what may be sliced by, not what must be present.
+source_id: primary
+type: csv
+path: data/raw/primary.csv
+date_column: Date
+entity_columns:
+  - Region
+refresh_cadence: daily
+as_of: null

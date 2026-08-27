@@ -1,0 +1,70 @@
+# Supply-chain KPI contract.
+#
+# Same discipline as the retail contract: measures are declared separately from
+# the arithmetic so aggregation happens first and every KPI is a ratio of sums.
+# Three of these would be wrong as a mean of per-row ratios -- a week where one
+# supplier ships 20 units and another ships 20,000 must not weight their fill
+# rates equally.
+contract_id: scm_core_v1
+source_id: scm_weekly
+time_grain: week
+entity_keys: []
+
+restricted_columns:
+  # Supplier commercial terms. Visible to Supply Chain and Finance; withheld from
+  # personas without procurement entitlement, and recorded in lineage either way.
+  - Purchase Price Per Unit
+  - Inbound Freight Cost
+
+kpis:
+  - name: Fill Rate
+    category: Supply Chain
+    description: Share of ordered units the supplier actually delivered.
+    measures:
+      units_received: {column: Units Received, agg: sum}
+      units_ordered: {column: Units Ordered, agg: sum}
+    expression: units_received / units_ordered * 100
+    unit: percent
+    direction: higher_is_better
+    drivers: [Supplier capacity, Order lead time, Allocation priority]
+    materiality: {min_abs_pct: 2.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 12}
+
+  - name: Weighted Lead Time
+    category: Supply Chain
+    description: Days from order to receipt, weighted by units so large shipments count for more.
+    measures:
+      lead_time_unit_days: {column: Lead Time Unit Days, agg: sum}
+      units_received: {column: Units Received, agg: sum}
+    expression: lead_time_unit_days / units_received
+    unit: days
+    direction: lower_is_better
+    drivers: [Supplier capacity, Freight routing, Customs and port delays]
+    materiality: {min_abs_pct: 8.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 12}
+
+  - name: Stockout Rate
+    category: Supply Chain
+    description: Share of days a line was unavailable to sell.
+    measures:
+      stockout_days: {column: Stockout Days, agg: sum}
+      days_in_period: {column: Days In Period, agg: sum}
+    expression: stockout_days / days_in_period * 100
+    unit: percent
+    direction: lower_is_better
+    drivers: [Replenishment timing, Demand spikes, Supplier shortfall]
+    materiality: {min_abs_pct: 15.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 12}
+
+  - name: Days Of Supply
+    category: Supply Chain
+    description: Days of demand the current on-hand position covers.
+    measures:
+      on_hand: {column: On Hand Units, agg: sum}
+      units_received: {column: Units Received, agg: sum}
+    expression: on_hand / units_received * 7
+    unit: days
+    direction: higher_is_better
+    drivers: [Replenishment cadence, Lead time variability, Demand forecast error]
+    materiality: {min_abs_pct: 10.0, min_business_impact: 2.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 12}

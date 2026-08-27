@@ -1,31 +1,32 @@
 """Ask the engine a question in plain language.
 
-    python -m kpi_engine.cli.ask "why did margin fall in the West last quarter?"
-    python -m kpi_engine.cli.ask "what needs attention?" --persona exec
-    python -m kpi_engine.cli.ask "why did ROAS drop?" --model gemini-3.7-flash
-    python -m kpi_engine.cli.ask "what needs attention?" --no-llm     # no API key needed
+    python -m kpi_engine.cli.ask --company acme-retail "why did margin fall in the West?"
+    python -m kpi_engine.cli.ask --company acme-retail "what needs attention?" --persona exec
+    python -m kpi_engine.cli.ask --company acme-retail "why did ROAS drop?" --model gemini-3.7-flash
+    python -m kpi_engine.cli.ask --company acme-retail "what needs attention?" --no-llm
 
 Two model calls sit at the ends of this: one turns the question into a validated
 pipeline configuration, one writes the prose. Everything that produces a number
 between them is the deterministic engine, unchanged.
 
-Ask about a KPI, not a driver column. The answerable set is CAC, ROAS, Net Profit
-Margin, Conversion Rate, Inventory Turnover, Fill Rate, Weighted Lead Time,
-Stockout Rate and Days Of Supply. COGS, Total Expenses and Cash are *drivers*: the
+Ask about a KPI, not a driver column. Which KPIs are answerable depends on the
+company: for `acme-retail` the set is CAC, ROAS, Net Profit Margin, Conversion
+Rate, Inventory Turnover, Fill Rate, Weighted Lead Time, Stockout Rate and Days Of
+Supply. COGS, Total Expenses and Cash are *drivers*: the
 engine attributes movements to them, so naming one as the thing that moved gets you
 an abstention rather than an answer.
 
 Two questions that land on the injected scenario, for a demo:
 
     # the cross-source story: a supplier disruption reaching margin through COGS
-    python -m kpi_engine.cli.ask \\
+    python -m kpi_engine.cli.ask --company acme-retail \\
       "Net Profit Margin and Inventory Turnover fell in August and September 2026. \\
     Did the Kestrel Logistics supplier disruption cause it? Compare Kestrel \\
     Logistics against Northwind Foods and trace the path through to COGS." \\
       --persona analyst --time-grain week --entity-keys Supplier
 
     # the clean one: a West-only ad shock with four untreated regions as controls
-    python -m kpi_engine.cli.ask \\
+    python -m kpi_engine.cli.ask --company acme-retail \\
       "Why did CAC rise and ROAS fall in the West region between mid-March and \\
     early April 2026, and how much of the CAC move came from marketing spend \\
     versus lost new customers?" \\
@@ -39,7 +40,8 @@ import datetime as dt
 import logging
 import sys
 
-from kpi_engine.cli._common import banner, console, kv
+from kpi_engine.cli._common import banner, console, kv, open_from_args
+from kpi_engine.tenancy import add_company_argument
 
 
 def _setup_logging(level: int) -> None:
@@ -79,7 +81,6 @@ def _setup_logging(level: int) -> None:
 def main(argv: list[str] | None = None) -> int:
     try:
         from kpi_agent import (
-            DEFAULT_CONFIG,
             DEFAULT_MODEL,
             LlmUnavailable,
             build_llm,
@@ -95,15 +96,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("question", help="What you want to know, in plain language.")
     parser.add_argument("--persona", default=None, choices=["analyst", "exec", "ops"],
                         help="Who is asking. Inferred from the question when omitted.")
-    parser.add_argument("--dataset", default=None, help="Override the sales CSV.")
-    parser.add_argument("--scm", default=None, help="Override the supply-chain CSV.")
-    parser.add_argument("--source", default=None, help="Sales source config YAML.")
-    parser.add_argument("--scm-source", default=None, help="Supply-chain source config YAML.")
-    parser.add_argument("--contract", default=None, help="Sales KPI contract YAML.")
-    parser.add_argument("--scm-contract", default=None, help="Supply-chain KPI contract YAML.")
-    parser.add_argument("--graph", default=None)
-    parser.add_argument("--detection", default=None)
-    parser.add_argument("--personas", default=None)
+    add_company_argument(parser)
+    # One flag replaces the six per-source path overrides this used to carry
+    # (--dataset/--scm/--source/--scm-source/--contract/--scm-contract). Those
+    # encoded "index 0 is sales, index 1 is supply chain", which stopped being true
+    # the moment a company could declare one source or five. A source is now named
+    # by the id its own company.yaml gives it.
+    parser.add_argument("--sources", nargs="*", default=None,
+                        help="Restrict the run to these declared source ids. "
+                             "Omit to use every source the company declares.")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--top-events", type=int, default=5)
     parser.add_argument("--model", default=None,
@@ -137,25 +138,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="Suppress the stage log; print only the report.")
     args = parser.parse_args(argv)
 
-    config = {k: v for k, v in DEFAULT_CONFIG.items()}
-    sources = [dict(s) for s in config["sources"]]
-    if args.source:
-        sources[0]["source"] = args.source
-    if args.contract:
-        sources[0]["contract"] = args.contract
-    if args.dataset:
-        sources[0]["dataset"] = args.dataset
-    if args.scm_source:
-        sources[1]["source"] = args.scm_source
-    if args.scm_contract:
-        sources[1]["contract"] = args.scm_contract
-    if args.scm:
-        sources[1]["dataset"] = args.scm
-    config["sources"] = sources
-    for key, value in (("graph", args.graph), ("detection", args.detection),
-                       ("personas", args.personas)):
-        if value:
-            config[key] = value
+    paths = open_from_args(args)
+    config: dict = {}
+    if args.sources:
+        unknown = [s for s in args.sources if s not in paths.spec.source_ids]
+        if unknown:
+            print(f"Company '{paths.slug}' declares no source(s) {unknown}. "
+                  f"Known: {paths.spec.source_ids}", file=sys.stderr)
+            return 2
+        config["sources"] = list(args.sources)
     config["top_events"] = args.top_events
     config["time_grain"] = args.time_grain
     config["entity_keys"] = args.entity_keys
@@ -178,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run_id = args.run_id or f"ask-{dt.datetime.now():%Y%m%d-%H%M%S}"
     state = run_agent(
-        args.question, llm=llm, persona=args.persona,
+        args.question, company=paths, llm=llm, persona=args.persona,
         run_id=run_id, config=config,
     )
 

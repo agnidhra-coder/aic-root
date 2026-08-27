@@ -1,10 +1,10 @@
 """Stage 4: score the pipeline against the injected ground truth.
 
-Without this the thresholds in configs/detection/default.yaml would be guesses.
+Without this the thresholds in a company's detection config would be guesses.
 Detection is scored on whether real events were found and how much of the noise
 was suppressed; attribution is scored on whether the true driver came out on top.
 
-    python -m kpi_engine.cli.evaluate --run-id d-reg-wk
+    python -m kpi_engine.cli.evaluate --company acme-retail --run-id d-reg-wk
 """
 
 from __future__ import annotations
@@ -12,8 +12,9 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 
-from kpi_engine.cli._common import banner, kv, latest_run_dir, resolve, run_dir
+from kpi_engine.cli._common import banner, kv, open_from_args
 from kpi_engine.config_io import read_json, write_json
+from kpi_engine.tenancy import add_company_argument
 from kpi_engine.contracts.payloads import EventWindow
 
 
@@ -67,13 +68,21 @@ def _matches(detected: EventWindow, expected: dict, tolerance_days: int = 7) -> 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    add_company_argument(parser)
     parser.add_argument("--run-id", default=None)
-    parser.add_argument("--truth", default="data/generated/ground_truth.json")
+    parser.add_argument("--truth", default=None,
+                        help="Ground-truth JSON. Defaults to the company's "
+                             "data/generated/ground_truth.json.")
     parser.add_argument("--tolerance-days", type=int, default=7)
     args = parser.parse_args(argv)
 
-    out = run_dir(args.run_id) if args.run_id else latest_run_dir()
-    truth = read_json(resolve(args.truth))
+    paths = open_from_args(args)
+    out = paths.run_dir(args.run_id) if args.run_id else paths.latest_run_dir()
+    truth_path = (
+        paths.resolve(args.truth) if args.truth
+        else paths.generated_dir / "ground_truth.json"
+    )
+    truth = read_json(truth_path)
     events = [EventWindow.model_validate(e) for e in read_json(out / "events.json")]
 
     entity_values: dict[str, set[str]] = {}

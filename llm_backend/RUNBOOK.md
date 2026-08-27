@@ -21,50 +21,81 @@ GOOGLE_API_KEY=your-key-here
 `.env` is gitignored and loaded automatically. No key is needed for
 `--no-llm` or for any `kpi_engine.cli.*` command.
 
-Artefacts land in `outputs/<run_id>/`. Pass `--run-id` to make several stages
-share one directory, or omit it to get a timestamped one.
+Artefacts land in `user/<company>/outputs/<run_id>/`. Pass `--run-id` to make
+several stages share one directory, or omit it to get a timestamped one.
+
+---
+
+## Companies
+
+Every command below takes a **required** `--company`. There is no default: a
+command that ran against whichever tenant happened to be configured would report
+one company's numbers under another's name.
+
+```bash
+uv run python -m kpi_engine.cli.list_companies            # who exists, and are they ready
+uv run python -m kpi_engine.cli.list_companies --json     # same shape as GET /companies
+uv run python -m kpi_engine.cli.init_company --company acme-retail --check  # validate; writes nothing
+
+uv run python -m kpi_engine.cli.init_company --company orbit-grocers \
+    --display-name "Orbit Grocers" --domain other --template minimal \
+    --from-csv extract.csv
+```
+| flag | default | description |
+|---|---|---|
+| `--company` | — | Slug: `^[a-z0-9][a-z0-9_-]{1,62}$`. Required. |
+| `--display-name` | the slug | Human-readable name. |
+| `--domain` | `other` | Repeatable. |
+| `--template` | first domain with a template | Which `templates/company/<name>/` to seed from. |
+| `--from-csv` | none | CSV to attach after creating. Omit and the company is `awaiting_data`. |
+| `--source-id` | the primary | Which declared source `--from-csv` belongs to. |
+| `--supabase-user-id` | none | Repeatable. Recorded so an upload resolves to this folder. |
+| `--force` | off | Overwrite an existing folder; accept a CSV missing contract columns. |
+| `--check` | off | Validate an existing company and exit. Exit 2 if it has problems. |
+| `--json` | off | Machine-readable result. |
+
+Seeded tenants: `acme-retail` (the demo, and what the thresholds were calibrated
+on), `orbit-grocers` (one source, a smaller contract), `testco` (pytest fixture;
+declares `retail_daily` exactly as acme does, so anything sharing state by source
+id alone fails loudly).
 
 ---
 
 ## `profile_source`
 
 ```bash
-uv run python -m kpi_engine.cli.profile_source
-uv run python -m kpi_engine.cli.profile_source --source configs/sources/scm_csv.yaml --out outputs/scm_profile.json
+uv run python -m kpi_engine.cli.profile_source --company acme-retail
+uv run python -m kpi_engine.cli.profile_source --company acme-retail --source-id scm_weekly
 ```
-
 | flag | default | description |
 |---|---|---|
-| `--source` | `configs/sources/retail_csv.yaml` | Source config YAML. |
-| `--out` | `outputs/profiles/<source_id>.json` | Output JSON path override. |
+| `--source-id` | the company's primary | Which declared source to use. |
+| `--out` | `data/profiles/<source_id>.json` | Output path, company-relative. |
 
 ---
 
 ## `inject_scenario`
 
 ```bash
-uv run python -m kpi_engine.cli.inject_scenario
-uv run python -m kpi_engine.cli.inject_scenario --scenario configs/scenarios/ad_cost_shock.yaml --out-dir data/generated
+uv run python -m kpi_engine.cli.inject_scenario --company acme-retail
+uv run python -m kpi_engine.cli.inject_scenario --company acme-retail --scenario configs/scenarios/ad_cost_shock.yaml
 ```
-
 | flag | default | description |
 |---|---|---|
-| `--scenario` | `configs/scenarios/ad_cost_shock.yaml` | Scenario spec YAML (events to stamp). |
-| `--source` | `configs/sources/retail_csv.yaml` | Base source config to mutate. |
-| `--out-dir` | `data/generated` | Directory to write the mutated CSV + ground truth JSON. |
+| `--scenario` | `configs/scenarios/ad_cost_shock.yaml` | Scenario YAML, company-relative. |
+| `--source-id` | the company's primary | Which declared source to inject into. |
+| `--out-dir` | `data/generated` | Output directory, company-relative. |
 
 ---
 
 ## `compute_kpis`
 
 ```bash
-uv run python -m kpi_engine.cli.compute_kpis --entity-keys Region --time-grain week
+uv run python -m kpi_engine.cli.compute_kpis --company acme-retail --entity-keys Region --time-grain week
 ```
-
 | flag | default | description |
 |---|---|---|
-| `--source` | `configs/sources/retail_csv.yaml` | Source config YAML. |
-| `--contract` | `configs/semantics/retail_kpis.yaml` | KPI contract YAML. |
+| `--source-id` | the company's primary | Which declared source to use. |
 | `--entity-keys` | contract default | Dimensions to slice by (e.g. `Region Channel`). Omit for total level. |
 | `--kpis` | all | Subset of KPI names to compute. |
 | `--time-grain` | contract default | `day` \| `week` \| `month`. |
@@ -76,14 +107,13 @@ uv run python -m kpi_engine.cli.compute_kpis --entity-keys Region --time-grain w
 ## `profile_series`
 
 ```bash
-uv run python -m kpi_engine.cli.profile_series --entity-keys Region --time-grain week
-uv run python -m kpi_engine.cli.profile_series --entity-keys Region --time-grain week --dataset data/generated/ad_cost_shock_v1.csv
+uv run python -m kpi_engine.cli.profile_series --company acme-retail --entity-keys Region --time-grain week
+uv run python -m kpi_engine.cli.profile_series --company acme-retail --entity-keys Region --time-grain week
 ```
-
 | flag | default | description |
 |---|---|---|
 | `--source`, `--contract`, `--entity-keys`, `--kpis`, `--time-grain` | see `compute_kpis` | same common flags |
-| `--eda` | `configs/eda/default.yaml` | EDA spec YAML (decomposition/trend/seasonality settings). |
+| `--eda` | the company's `configs.eda` | Override the EDA spec. Company-relative. |
 | `--run-id` | timestamped | Run id. |
 | `--dataset` | source config's path | Override the CSV path. |
 
@@ -92,13 +122,12 @@ uv run python -m kpi_engine.cli.profile_series --entity-keys Region --time-grain
 ## `detect_anomalies`
 
 ```bash
-uv run python -m kpi_engine.cli.detect_anomalies --entity-keys Region --time-grain week --dataset data/generated/ad_cost_shock_v1.csv
+uv run python -m kpi_engine.cli.detect_anomalies --company acme-retail --entity-keys Region --time-grain week
 ```
-
 | flag | default | description |
 |---|---|---|
 | `--source`, `--contract`, `--entity-keys`, `--kpis`, `--time-grain` | see `compute_kpis` | same common flags |
-| `--detection` | `configs/detection/default.yaml` | Detection spec YAML (STL, baseline, thresholds). |
+| `--detection` | the company's `configs.detection` | Override the detection spec. Company-relative. |
 | `--dataset` | source config's path | Override the CSV path. |
 | `--run-id` | timestamped | Run id. |
 
@@ -107,15 +136,14 @@ uv run python -m kpi_engine.cli.detect_anomalies --entity-keys Region --time-gra
 ## `explain_event`
 
 ```bash
-uv run python -m kpi_engine.cli.explain_event --entity-keys Region --time-grain week --dataset data/generated/ad_cost_shock_v1.csv --top 3
-uv run python -m kpi_engine.cli.explain_event --event-id <id> --run-id <run_id>
+uv run python -m kpi_engine.cli.explain_event --company acme-retail --entity-keys Region --time-grain week --top 3
+uv run python -m kpi_engine.cli.explain_event --company acme-retail --event-id <id> --run-id <run_id>
 ```
-
 | flag | default | description |
 |---|---|---|
 | `--source`, `--contract`, `--entity-keys`, `--kpis`, `--time-grain` | see `compute_kpis` | same common flags |
-| `--detection` | `configs/detection/default.yaml` | Detection spec YAML. |
-| `--graph` | `configs/causal/retail_dag.yaml` | Causal DAG YAML. |
+| `--detection` | the company's `configs.detection` | Override the detection spec. Company-relative. |
+| `--graph` | the company's `configs.graph` | Override the causal DAG. Company-relative. |
 | `--run-id` | latest | Detection run to read attributions for. |
 | `--event-id` | none | Explain one specific event id instead of a top-N sweep. |
 | `--top` | `3` | Explain the N highest-scoring events. |
@@ -126,13 +154,12 @@ uv run python -m kpi_engine.cli.explain_event --event-id <id> --run-id <run_id>
 ## `evaluate`
 
 ```bash
-uv run python -m kpi_engine.cli.evaluate --run-id <run_id> --truth data/generated/ground_truth.json
+uv run python -m kpi_engine.cli.evaluate --company acme-retail --run-id <run_id> --truth data/generated/ground_truth.json
 ```
-
 | flag | default | description |
 |---|---|---|
 | `--run-id` | latest | Run to score. |
-| `--truth` | `data/generated/ground_truth.json` | Ground-truth JSON to score against. |
+| `--truth` | `data/generated/ground_truth.json` | Ground-truth JSON, company-relative. |
 | `--tolerance-days` | `7` | Window-overlap tolerance for a detection to count as a match. |
 
 ---
@@ -140,16 +167,14 @@ uv run python -m kpi_engine.cli.evaluate --run-id <run_id> --truth data/generate
 ## `run_pipeline` — everything at once
 
 ```bash
-uv run python -m kpi_engine.cli.run_pipeline --entity-keys Region --time-grain week --dataset data/generated/ad_cost_shock_v1.csv --evaluate
+uv run python -m kpi_engine.cli.run_pipeline --company acme-retail --entity-keys Region --time-grain week --evaluate
 ```
-
 | flag | default | description |
 |---|---|---|
-| `--source` | `configs/sources/retail_csv.yaml` | Source config YAML. |
-| `--contract` | `configs/semantics/retail_kpis.yaml` | KPI contract YAML. |
-| `--detection` | `configs/detection/default.yaml` | Detection spec YAML. |
-| `--eda` | `configs/eda/default.yaml` | EDA spec YAML. |
-| `--graph` | `configs/causal/retail_dag.yaml` | Causal DAG YAML. |
+| `--source-id` | the company's primary | Which declared source to use. |
+| `--detection` | the company's `configs.detection` | Override the detection spec. Company-relative. |
+| `--eda` | the company's `configs.eda` | Override the EDA spec. Company-relative. |
+| `--graph` | the company's `configs.graph` | Override the causal DAG. Company-relative. |
 | `--dataset` | source config's path | Override the CSV path. |
 | `--entity-keys` | none | Dimensions to slice by (e.g. `Region Channel`). |
 | `--time-grain` | `day` \| `week` \| `month` | Time grain. |
@@ -159,7 +184,7 @@ uv run python -m kpi_engine.cli.run_pipeline --entity-keys Region --time-grain w
 | `--skip-profile` | off | Skip stage 0 (source profiling); reuses the cached profile. |
 | `--skip-eda` | off | Skip stage 1b (series profiling). |
 | `--evaluate` | off | Also run stage 4 scoring against ground truth. |
-| `--truth` | `data/generated/ground_truth.json` | Ground-truth JSON, used only with `--evaluate`. |
+| `--truth` | `data/generated/ground_truth.json` | Ground-truth JSON, company-relative; only with `--evaluate`. |
 
 ---
 
@@ -169,7 +194,6 @@ uv run python -m kpi_engine.cli.run_pipeline --entity-keys Region --time-grain w
 uv run python -m kpi_engine.cli.export_schemas
 uv run python -m kpi_engine.cli.export_schemas --out-dir schemas
 ```
-
 | flag | default | description |
 |---|---|---|
 | `--out-dir` | `schemas` | Directory to write JSON Schema files for every config/payload model. |
@@ -179,16 +203,15 @@ uv run python -m kpi_engine.cli.export_schemas --out-dir schemas
 ## `generate_scm`
 
 ```bash
-uv run python -m kpi_engine.cli.generate_scm
-uv run python -m kpi_engine.cli.generate_scm --sales data/generated/ad_cost_shock_v1.csv \
+uv run python -m kpi_engine.cli.generate_scm --company acme-retail
+uv run python -m kpi_engine.cli.generate_scm --company acme-retail --sales data/generated/ad_cost_shock_v1.csv \
     --disruption-start 2026-08-10 --disruption-end 2026-09-07 --shape ramp
 ```
-
 | flag | default | description |
 |---|---|---|
-| `--sales` | `data/generated/ad_cost_shock_v1.csv` | Sales CSV the SCM panel is derived from. |
-| `--out` | `data/generated/scm_weekly_v1.csv` | Output SCM CSV path. |
-| `--manifest` | `data/generated/scm_ground_truth.json` | Output ground-truth JSON path. |
+| `--sales` | `data/generated/ad_cost_shock_v1.csv` | Sales CSV, company-relative. |
+| `--out` | `data/generated/scm_weekly_v1.csv` | Output SCM CSV, company-relative. |
+| `--manifest` | `data/generated/scm_ground_truth.json` | Output manifest, company-relative. |
 | `--seed` | `42` | Random seed (deterministic across reruns). |
 | `--date-column` | `Date` | Date column name in the sales CSV. |
 | `--entity-columns` | `Region`, `Product category` | Entity columns to key the aggregation by. |
@@ -204,14 +227,14 @@ Requires `uv sync --extra dev --extra agent` and, unless `--no-llm` is passed,
 `GOOGLE_API_KEY` in `.env`.
 
 ```bash
-uv run python -m kpi_engine.cli.ask "why did margin fall in the West?" --persona ops
-uv run python -m kpi_engine.cli.ask "what needs attention?" --persona exec
-uv run python -m kpi_engine.cli.ask "why did ROAS drop?" --model gemini-3.7-flash
-uv run python -m kpi_engine.cli.ask "what needs attention?" --persona exec --no-llm
+uv run python -m kpi_engine.cli.ask --company acme-retail "why did margin fall in the West?" --persona ops
+uv run python -m kpi_engine.cli.ask --company acme-retail "what needs attention?" --persona exec
+uv run python -m kpi_engine.cli.ask --company acme-retail "why did ROAS drop?" --model gemini-3.7-flash
+uv run python -m kpi_engine.cli.ask --company acme-retail "what needs attention?" --persona exec --no-llm
 ```
 
 ```
-uv run python -m kpi_engine.cli.ask \
+uv run python -m kpi_engine.cli.ask --company acme-retail \
   "Net Profit Margin and Inventory Turnover fell in August and September 2026. \
 Did the Kestrel Logistics supplier disruption cause it? Compare Kestrel Logistics \
 against Northwind Foods and trace the path through to COGS." \
@@ -219,25 +242,17 @@ against Northwind Foods and trace the path through to COGS." \
 ```
 
 ```
-uv run python -m kpi_engine.cli.ask \
+uv run python -m kpi_engine.cli.ask --company acme-retail \
   "Why did CAC rise and ROAS fall in the West region between mid-March and early \
 April 2026, and how much of the CAC move came from marketing spend versus lost \
 new customers?" \
   --persona analyst --time-grain week --entity-keys Region
 ```
-
 | flag | default | description |
 |---|---|---|
 | `--persona` | inferred | `analyst` \| `exec` \| `ops`. Who is asking; controls which facts and sections are included. |
-| `--dataset` | source config's path | Override the sales CSV. |
-| `--scm` | source config's path | Override the supply-chain CSV. |
-| `--source` | `configs/sources/retail_csv.yaml` | Sales source config YAML. |
-| `--scm-source` | `configs/sources/scm_csv.yaml` | Supply-chain source config YAML. |
-| `--contract` | `configs/semantics/retail_kpis.yaml` | Sales KPI contract YAML. |
-| `--scm-contract` | `configs/semantics/scm_kpis.yaml` | Supply-chain KPI contract YAML. |
-| `--graph` | `configs/causal/retail_dag.yaml` | Causal DAG YAML. |
-| `--detection` | `configs/detection/default.yaml` | Detection spec YAML. |
-| `--personas` | `configs/agent/personas.yaml` | Persona definitions YAML. |
+| `--company` | — | Which tenant to ask. Required. |
+| `--sources` | every declared source | Restrict the run to these declared source ids. |
 | `--run-id` | timestamped | Run id / output directory name. |
 | `--top-events` | `5` | Max events considered for the answer. |
 | `--model` | `gemini-3.5-flash-lite` | Model id override. The default is `llm.DEFAULT_MODEL`. |
@@ -251,9 +266,9 @@ new customers?" \
 | `-q`, `--quiet` | off | Suppress the stage log; print only the report. |
 
 Reads both source configs, both KPI contracts, the DAG, the detection spec,
-and the persona config. Writes `outputs/<run_id>/agent_report.md` and
+and the persona config. Writes `user/<company>/outputs/<run_id>/agent_report.md` and
 `agent_report.json`, plus a full pipeline run per source under
-`outputs/<run_id>/<source_id>/`.
+`user/<company>/outputs/<run_id>/<source_id>/`.
 
 ---
 
@@ -275,7 +290,6 @@ uv sync --extra dev --extra agent --extra cli --extra api
 ```
 
 (`uv run` on its own does not remove anything, so only `uv sync` has this effect.)
-
 | flag | default | description |
 |---|---|---|
 | `--host` | `127.0.0.1` (`KPI_API_HOST`) | Bind address. Localhost by default: these routes carry no authentication. |
@@ -287,32 +301,42 @@ Also read: `CORS_ORIGIN` (comma-separated, default
 `http://localhost:3000,http://localhost:3001`) and `KPI_API_MAX_CONCURRENT_RUNS`
 (default 2 — a run is CPU-bound, so four at once is four times as slow rather
 than four at once).
-
 | route | returns |
 |---|---|
-| `GET /health` | status, default model, whether a key is present (never the key). |
-| `POST /ask` | `text/event-stream` — one typed event per stage, as it lands. |
-| `POST /ask/sync` | the same events folded into one JSON object. |
-| `GET /runs/{run_id}` | the saved `agent_report.json`. |
-| `GET /runs/{run_id}/report` | the saved `agent_report.md`. |
+| `GET /health` | status, default model, whether a key is present (never the key), company count. |
+| `GET /companies` | every registered tenant: sources, agent defaults, `status`, `problems`. |
+| `POST /companies` | provision a tenant. 201, or 409 on a duplicate slug, or 422 on a bad one. |
+| `GET /companies/{c}` | one tenant, as above. 404 if unregistered. |
+| `POST /companies/{c}/sources/{sid}/data` | attach a CSV (multipart `file`). 422 naming the missing columns if it does not match the contract. |
+| `POST /companies/{c}/ask` | `text/event-stream` — one typed event per stage, as it lands. |
+| `POST /companies/{c}/ask/sync` | the same events folded into one JSON object. |
+| `GET /companies/{c}/runs/{run_id}` | the saved `agent_report.json`. |
+| `GET /companies/{c}/runs/{run_id}/report` | the saved `agent_report.md`. |
 | `GET /docs` | the generated OpenAPI page. |
 
-The request body mirrors the `ask` flags above: `question`, `persona`,
+The company is a path segment, not a body field: it belongs to the route, and it
+gives `GET .../runs/{run_id}` something to resolve against. Asking a
+company whose data has not arrived is a 409, not an empty report.
+
+The `ask` body mirrors the `ask` flags above: `question`, `persona`,
 `time_grain`, `entity_keys`, `model`, `no_llm`, `top_events`, `run_id`,
-`dataset`, `scm`, `source`, `scm_source`, `contract`, `scm_contract`, `graph`,
-`detection`, `personas`, plus `logs` (default true). Unknown fields are a 422
-rather than a silent drop. `entity_keys: null` means the planner decides;
+`sources` (declared source ids), plus `logs` (default true). Unknown fields are a
+422 rather than a silent drop. `entity_keys: null` means the planner decides;
 `entity_keys: []` means total level.
+
+**No field names a file.** The body once carried nine project-root-relative path
+strings; `extra="forbid"` guards field names, never their values, so on an
+unauthenticated API they were an arbitrary file read. A source is named by the id
+its company declared.
 
 There is deliberately no date field. A period reaches the pipeline only through
 the planner's intent, which becomes a *report window*; accepting one here is the
 easy way to have it arrive as a load filter that starves the baseline instead.
 
 ### Events, in the order the graph produces them
-
 | event | carries |
 |---|---|
-| `started` | `run_id`, `question`, `persona`, `model`, `no_llm`. |
+| `started` | `run_id`, `company`, `question`, `persona`, `model`, `no_llm`. |
 | `log` | one stage-log line: `level`, `source` (`engine` \| `model`), `message`. The same commentary the terminal prints. Suppressed by `"logs": false`. |
 | `ingest` | per-source row and column counts, `coverage_days`, `min_train_periods`. |
 | `plan` | the `AnalysisIntent`, twice: `stage: "proposed"` (model call #1) then `"resolved"` (after validation), with `problems[]` for anything the validator adjusted. |
@@ -328,17 +352,25 @@ easy way to have it arrive as a load filter that starves the baseline instead.
 | `done` | `outcome` (`report` \| `clarification` \| `no_findings` \| `error`), `duration_ms`. |
 
 A run keeps going after a client disconnects and still writes
-`outputs/<run_id>/`, so the answer stays recoverable from `GET /runs/{run_id}`.
+`user/<company>/outputs/<run_id>/`, so the answer stays recoverable from
+`GET /companies/{company}/runs/{run_id}`.
 
 ```bash
+curl localhost:8000/companies
+
 # deterministic, no key needed
-curl -N -X POST localhost:8000/ask -H 'content-type: application/json' \
+curl -N -X POST localhost:8000/companies/acme-retail/ask -H 'content-type: application/json' \
   -d '{"question":"what needs attention?","no_llm":true,"persona":"exec"}'
 
 # the two-model-call path
-curl -N -X POST localhost:8000/ask -H 'content-type: application/json' -d '{
+curl -N -X POST localhost:8000/companies/acme-retail/ask -H 'content-type: application/json' -d '{
   "question":"Why did CAC rise and ROAS fall in the West region between mid-March and early April 2026?",
   "persona":"analyst","time_grain":"week","entity_keys":["Region"]}'
+
+# provision a tenant, then give it data
+curl -X POST localhost:8000/companies -H 'content-type: application/json' \
+  -d '{"company_id":"demo-co","display_name":"Demo Co","domains":["retail"]}'
+curl -F file=@extract.csv localhost:8000/companies/demo-co/sources/retail_daily/data
 ```
 
 ---

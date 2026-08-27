@@ -1,0 +1,41 @@
+# The smallest contract that still exercises the whole chain: one margin KPI and
+# one rate KPI, both ratios of sums, both with a materiality bar.
+#
+# Measures are declared separately from the arithmetic, which forces
+# ratio-of-sums: measures are aggregated to the grain first, then the expression
+# runs on those sums. Averaging per-row ratios instead gives a different and wrong
+# answer whenever denominators vary across rows.
+#
+# `expression` is parsed by the restricted AST evaluator in
+# semantics/expressions.py, never by eval().
+contract_id: minimal_core_v1
+source_id: primary
+time_grain: day
+entity_keys: []
+
+kpis:
+  - name: Net Profit Margin
+    category: Financial Health
+    description: Bottom-line profitability.
+    measures:
+      total_revenue: {column: Total Revenue, agg: sum}
+      total_expenses: {column: Total Expenses, agg: sum}
+    expression: (total_revenue - total_expenses) / total_revenue * 100
+    unit: percent
+    direction: higher_is_better
+    drivers: [Supply chain efficiency, Overhead control, Pricing power]
+    materiality: {min_abs_pct: 3.0, min_business_impact: 0.5}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+
+  - name: Conversion Rate
+    category: Sales & Revenue
+    description: Percentage of browsers who buy.
+    measures:
+      number_of_sales: {column: Number of Sales, agg: sum}
+      total_visitors: {column: Total Visitors, agg: sum}
+    expression: number_of_sales / total_visitors * 100
+    unit: percent
+    direction: higher_is_better
+    drivers: [Window displays, UX, Staff helpfulness, Product availability]
+    materiality: {min_abs_pct: 4.0, min_business_impact: 0.15}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}

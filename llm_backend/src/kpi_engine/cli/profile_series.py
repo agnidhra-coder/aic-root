@@ -6,7 +6,8 @@ series can be trusted at all. It emits no flags and nothing downstream branches
 on it, so it cannot affect detection; it exists to give a later narration layer
 the baseline context an EvidenceBundle alone does not carry.
 
-    python -m kpi_engine.cli.profile_series --entity-keys Region --time-grain week
+    python -m kpi_engine.cli.profile_series --company acme-retail \
+        --entity-keys Region --time-grain week
 """
 
 from __future__ import annotations
@@ -15,16 +16,15 @@ import argparse
 from collections import Counter
 
 from kpi_engine.cli._common import (
-    DEFAULT_EDA,
     add_common_args,
     apply_overrides,
     banner,
     kv,
     new_run_id,
-    resolve,
-    run_dir,
+    open_from_args,
+    selected_source,
 )
-from kpi_engine.config_io import load_contract, load_eda, load_source, write_json
+from kpi_engine.config_io import load_eda, write_json
 from kpi_engine.eda import profile_panel
 from kpi_engine.semantics import build_panel
 from kpi_engine.sources import build_source
@@ -33,7 +33,8 @@ from kpi_engine.sources import build_source
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     add_common_args(parser)
-    parser.add_argument("--eda", default=DEFAULT_EDA)
+    parser.add_argument("--eda", default=None,
+                        help="Override the company's EDA config.")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--dataset", default=None, help="Override the source config's path.")
     parser.add_argument(
@@ -41,13 +42,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    spec = load_source(resolve(args.source))
+    paths = open_from_args(args)
+    source_id = selected_source(paths, args)
+    spec = paths.source_spec(source_id)
     if args.dataset:
-        spec = spec.model_copy(update={"path": str(resolve(args.dataset))})
-    contract = apply_overrides(load_contract(resolve(args.contract)), args)
-    eda_spec = load_eda(resolve(args.eda))
+        spec = spec.model_copy(update={"path": str(paths.resolve(args.dataset))})
+    contract = apply_overrides(paths.contract(source_id), args)
+    eda_spec = load_eda(paths.resolve(args.eda)) if args.eda else paths.eda()
 
-    source = build_source(spec, base_dir=resolve("."))
+    source = build_source(spec, base_dir=paths.root)
     df = source.load()
     panel = build_panel(
         df, contract, spec.date_column, kpis=args.kpis, entity_keys=args.entity_keys
@@ -56,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     profiles = profile_panel(panel, eda_spec, contract, spec.source_id, spec.path)
 
     run_id = args.run_id or new_run_id("eda")
-    out = run_dir(run_id)
+    out = paths.run_dir(run_id)
     write_json([p.model_dump(mode="json") for p in profiles], out / "series_profiles.json")
 
     _report(profiles, contract, spec, args.top, out)

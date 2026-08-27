@@ -28,24 +28,10 @@ from typing import Any
 
 from langgraph.graph import END, StateGraph
 
-from kpi_engine.causal.dag import CausalGraph
-from kpi_engine.config_io import (
-    load_contract,
-    load_detection,
-    load_eda,
-    load_graph,
-    load_source,
-    project_root,
-    write_json,
-)
-from kpi_engine.pipeline import (
-    PipelineResult,
-    load_or_build_profile,
-    resolve_path,
-    run_dir,
-    run_pipeline,
-)
+from kpi_engine.config_io import write_json
+from kpi_engine.pipeline import PipelineResult, load_or_build_profile, run_pipeline
 from kpi_engine.sources import build_source
+from kpi_engine.tenancy import CompanyPaths, company_config, open_company
 
 from kpi_agent import facts as facts_mod
 from kpi_agent.catalog import build_catalog
@@ -66,21 +52,30 @@ log = logging.getLogger("kpi_agent.graph")
 
 
 def ingest_sources(state: AgentState) -> dict[str, Any]:
-    cfg = state["config"]
+    paths: CompanyPaths = state["config"]["paths"]
+    wanted = state["config"].get("sources")
     started = time.monotonic()
     loaded = []
-    for entry in cfg["sources"]:
-        spec = load_source(resolve_path(entry["source"]))
-        if entry.get("dataset"):
-            spec = spec.model_copy(update={"path": str(resolve_path(entry["dataset"]))})
-        contract = load_contract(resolve_path(entry["contract"]))
-        source = build_source(spec, base_dir=project_root())
+    for binding in paths.bindings:
+        if wanted and binding.source_id not in wanted:
+            continue
+        # `source_spec` has already folded in the binding's dataset override and
+        # made the path absolute, so nothing here has to know where the company
+        # folder is.
+        spec = paths.source_spec(binding.source_id)
+        contract = paths.contract(binding.source_id)
+        source = build_source(spec, base_dir=paths.root)
         df = source.load()
-        profile = load_or_build_profile(source, df, spec.source_id)
+        profile = load_or_build_profile(paths, source, df, spec.source_id)
         loaded.append((spec, contract, profile, df))
+    if not loaded:
+        raise ValueError(
+            f"Company '{paths.slug}' has no sources matching {sorted(wanted or [])}. "
+            f"Declared: {paths.spec.source_ids}"
+        )
 
-    graph = CausalGraph(load_graph(resolve_path(cfg["graph"])))
-    detection = load_detection(resolve_path(cfg["detection"]))
+    graph = paths.graph()
+    detection = paths.detection()
     min_train = detection.baseline.min_train_periods
 
     for spec, _contract, _profile, df in loaded:
@@ -204,10 +199,11 @@ def validate_intent(state: AgentState) -> dict[str, Any]:
 
 def run_pipelines(state: AgentState) -> dict[str, Any]:
     cfg = state["config"]
+    paths: CompanyPaths = cfg["paths"]
     resolved = state["intent"]
-    detection = load_detection(resolve_path(cfg["detection"]))
-    eda = load_eda(resolve_path(cfg["eda"]))
-    graph = CausalGraph(load_graph(resolve_path(cfg["graph"])))
+    detection = paths.detection()
+    eda = paths.eda()
+    graph = paths.graph()
 
     # A requested period scopes the *answer*, not the data the baseline learns from.
     # Restricting the load instead leaves the detector with a handful of periods
@@ -234,7 +230,7 @@ def run_pipelines(state: AgentState) -> dict[str, Any]:
         # Each source keeps its own native grain and its own dimensions. Forcing the
         # weekly supply file to a requested daily grain would fabricate resolution it
         # does not have; forcing `Supplier` onto the sales file would fail outright.
-        grain = resolved.time_grain if spec.source_id == cfg["primary_source_id"] else contract.time_grain
+        grain = resolved.time_grain if spec.source_id == paths.primary_source_id else contract.time_grain
         keys = [k for k in resolved.entity_keys if k in spec.entity_columns]
         kpis = [k for k in resolved.kpis if k in {d.name for d in contract.kpis}] or None
 
@@ -245,6 +241,7 @@ def run_pipelines(state: AgentState) -> dict[str, Any]:
         try:
             result = run_pipeline(
                 spec, contract, detection,
+                paths=paths,
                 run_id=f"{state['run_id']}/{spec.source_id}",
                 graph=graph, eda=eda,
                 kpis=kpis, entity_keys=keys, time_grain=grain,
@@ -267,12 +264,12 @@ def run_pipelines(state: AgentState) -> dict[str, Any]:
 
 
 def link_sources(state: AgentState) -> dict[str, Any]:
-    cfg = state["config"]
-    graph = CausalGraph(load_graph(resolve_path(cfg["graph"])))
+    paths: CompanyPaths = state["config"]["paths"]
+    graph = paths.graph()
     results: dict[str, PipelineResult] = state["results"]
 
-    primary = results.get(cfg["primary_source_id"])
-    secondary = [r for sid, r in results.items() if sid != cfg["primary_source_id"]]
+    primary = results.get(paths.primary_source_id)
+    secondary = [r for sid, r in results.items() if sid != paths.primary_source_id]
     if primary is None or not secondary:
         log.info("%s no cross-source link possible: only one source produced events",
                  ENGINE)
@@ -294,17 +291,20 @@ def link_sources(state: AgentState) -> dict[str, Any]:
 
 def assemble_facts(state: AgentState) -> dict[str, Any]:
     cfg = state["config"]
+    paths: CompanyPaths = cfg["paths"]
     resolved = state["intent"]
-    graph = CausalGraph(load_graph(resolve_path(cfg["graph"])))
-    personas = facts_mod.load_personas(resolve_path(cfg["personas"]))
+    graph = paths.graph()
+    personas = paths.personas()
     persona_spec = personas.get(resolved.persona, personas["analyst"])
 
     results: dict[str, PipelineResult] = state["results"]
-    primary_id = cfg["primary_source_id"]
+    primary_id = paths.primary_source_id
     primary = results.get(primary_id)
 
     sales_bundles = primary.bundles if primary else []
-    scm_bundles = [b for sid, r in results.items() if sid != primary_id for b in r.bundles]
+    secondary_bundles = [
+        b for sid, r in results.items() if sid != primary_id for b in r.bundles
+    ]
     series = [p for r in results.values() for p in r.series_profiles]
 
     context = facts_mod.build_context(
@@ -313,7 +313,7 @@ def assemble_facts(state: AgentState) -> dict[str, Any]:
         persona_spec=persona_spec,
         run_id=state["run_id"],
         sales_bundles=sales_bundles,
-        scm_bundles=scm_bundles,
+        scm_bundles=secondary_bundles,
         links=state.get("links", []),
         graph=graph,
         freshness=[r.freshness for r in results.values()],
@@ -360,8 +360,8 @@ def narrate(state: AgentState) -> dict[str, Any]:
 
 
 def verify_narrative(state: AgentState) -> dict[str, Any]:
-    cfg = state["config"]
-    graph = CausalGraph(load_graph(resolve_path(cfg["graph"])))
+    paths: CompanyPaths = state["config"]["paths"]
+    graph = paths.graph()
     result = verify_mod.verify(state["narrative"], state["context"], graph)
     if result.passed:
         log.info("%s verified: %d numeric claims and %d statements all resolved "
@@ -385,7 +385,7 @@ def use_fallback(state: AgentState) -> dict[str, Any]:
     )
     log.info("%s %s; rendering the deterministic template instead", ENGINE, reason)
     story = narrate_mod.fallback_narrative(state["context"], reason)
-    graph = CausalGraph(load_graph(resolve_path(state["config"]["graph"])))
+    graph = state["config"]["paths"].graph()
     return {
         "narrative": story,
         "used_fallback": True,
@@ -474,12 +474,14 @@ def _write_terse_report(state: AgentState, markdown: str, outcome: str) -> None:
     will want to inspect afterwards -- "why did it ask me that", "why did it find
     nothing" -- and an answer that exists only in terminal scrollback cannot be.
     """
-    out = run_dir(state["run_id"])
+    paths: CompanyPaths = state["config"]["paths"]
+    out = paths.run_dir(state["run_id"])
     (out / "agent_report.md").write_text(markdown)
     intent = state.get("intent")
     write_json(
         {
             "run_id": state["run_id"],
+            "company": paths.slug,
             "outcome": outcome,
             "question": state["question"],
             "intent": intent.model_dump(mode="json") if intent else None,
@@ -493,6 +495,7 @@ def _write_terse_report(state: AgentState, markdown: str, outcome: str) -> None:
 
 def report(state: AgentState) -> dict[str, Any]:
     cfg = state["config"]
+    paths: CompanyPaths = cfg["paths"]
     context: GroundedContext = state["context"]
     results: dict[str, PipelineResult] = state["results"]
 
@@ -520,11 +523,14 @@ def report(state: AgentState) -> dict[str, Any]:
         state["narrative"], context, state["verification"], telemetry
     )
 
-    out = run_dir(state["run_id"])
+    out = paths.run_dir(state["run_id"])
     (out / "agent_report.md").write_text(markdown)
     write_json(
         {
             "run_id": state["run_id"],
+            # An artefact that does not say whose data it describes is a hazard
+            # the moment two companies' reports sit in the same place.
+            "company": paths.slug,
             "question": state["question"],
             "intent": state["intent"].model_dump(mode="json") if state["intent"] else None,
             "intent_problems": state.get("intent_problems", []),
@@ -631,28 +637,10 @@ def build_graph():
     return g.compile()
 
 
-DEFAULT_CONFIG: dict[str, Any] = {
-    "sources": [
-        {"source": "configs/sources/retail_csv.yaml",
-         "contract": "configs/semantics/retail_kpis.yaml",
-         "dataset": "data/generated/ad_cost_shock_v1.csv"},
-        {"source": "configs/sources/scm_csv.yaml",
-         "contract": "configs/semantics/scm_kpis.yaml"},
-    ],
-    "primary_source_id": "retail_daily",
-    "graph": "configs/causal/retail_dag.yaml",
-    "detection": "configs/detection/default.yaml",
-    "eda": "configs/eda/default.yaml",
-    "personas": "configs/agent/personas.yaml",
-    "time_grain": "week",
-    "entity_keys": ["Region"],
-    "top_events": 5,
-}
-
-
 def stream_agent(
     question: str,
     *,
+    company: str | CompanyPaths,
     llm: Any = None,
     persona: str | None = None,
     run_id: str | None = None,
@@ -670,8 +658,15 @@ def stream_agent(
     and accumulating the deltas with `dict.update` reproduces `invoke`'s final
     state exactly. `test_streaming_the_graph_reproduces_what_invoke_returns` pins
     that rather than trusting it.
+
+    `company` is required and has no default. There is no module-level config to
+    fall back on: a run configured from whichever tenant happened to be wired in
+    would report one company's numbers under another's name.
     """
-    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    paths = company if isinstance(company, CompanyPaths) else open_company(company)
+    cfg = {**company_config(paths), **(config or {})}
+    cfg["paths"] = paths
+    cfg["company"] = paths.slug
     cfg["llm"] = llm
     cfg["usage"] = Usage()
     run_id = run_id or f"ask-{dt.datetime.now():%Y%m%d-%H%M%S}"
@@ -700,6 +695,7 @@ def stream_agent(
 def run_agent(
     question: str,
     *,
+    company: str | CompanyPaths,
     llm: Any = None,
     persona: str | None = None,
     run_id: str | None = None,
@@ -714,7 +710,7 @@ def run_agent(
     """
     final: AgentState = {}
     for _node, final in stream_agent(
-        question, llm=llm, persona=persona, run_id=run_id, config=config
+        question, company=company, llm=llm, persona=persona, run_id=run_id, config=config
     ):
         pass
     return final

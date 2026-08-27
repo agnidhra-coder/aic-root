@@ -1,0 +1,36 @@
+# Template company. This is a real `CompanySpec`, not a string template with
+# placeholders: `create_company` loads it, validates it, then overrides identity
+# (company_id, display_name, domains, created_at) and the agent defaults. A
+# template that does not parse as a CompanySpec fails here rather than at a
+# tenant's first question.
+#
+# Every path below is company-relative and mirrors what `create_company` copies
+# out of this template's `configs/` directory.
+company_id: template-retail
+display_name: Retail template
+domains: [retail]
+created_at: 2026-08-28
+notes: >
+  A retail tenant: one daily source sliced by Region, Channel, Product category
+  and Traffic source, five KPIs, and the governed retail DAG.
+
+sources:
+  - source_id: retail_daily
+    role: primary
+    domain: retail
+    source: configs/sources/primary.yaml
+    contract: configs/semantics/kpis.yaml
+    label: Daily retail extract
+
+configs:
+  graph: configs/causal/dag.yaml
+  detection: configs/detection/default.yaml
+  eda: configs/eda/default.yaml
+  personas: configs/agent/personas.yaml
+
+agent:
+  # Weekly, not daily: the panel is sampled rather than dense, so region-level
+  # daily ratios are too noisy to model. Grain must match signal-to-noise.
+  time_grain: week
+  entity_keys: [Region]
+  top_events: 5

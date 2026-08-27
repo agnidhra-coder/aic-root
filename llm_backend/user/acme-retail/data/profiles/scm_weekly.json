@@ -1,0 +1,345 @@
+{
+  "schema_version": "1.0",
+  "source_id": "scm_weekly",
+  "generated_at": "2026-08-25T23:37:00.652990",
+  "description": {
+    "schema_version": "1.0",
+    "source_id": "scm_weekly",
+    "path": "/home/abhirup/DEV/Accenture Hackathon/aic-root/llm_backend/data/generated/scm_weekly_v1.csv",
+    "n_rows": 5248,
+    "columns": [
+      "Week Start",
+      "Region",
+      "Product category",
+      "Supplier",
+      "Units Ordered",
+      "Units Received",
+      "Backorder Units",
+      "On Hand Units",
+      "Supplier Fill Rate",
+      "Lead Time Days",
+      "Stockout Days",
+      "Inbound Freight Cost",
+      "Purchase Price Per Unit",
+      "Lead Time Unit Days",
+      "Days In Period"
+    ],
+    "dtypes": {
+      "Week Start": "str",
+      "Region": "str",
+      "Product category": "str",
+      "Supplier": "str",
+      "Units Ordered": "int64",
+      "Units Received": "int64",
+      "Backorder Units": "int64",
+      "On Hand Units": "int64",
+      "Supplier Fill Rate": "float64",
+      "Lead Time Days": "float64",
+      "Stockout Days": "float64",
+      "Inbound Freight Cost": "float64",
+      "Purchase Price Per Unit": "float64",
+      "Lead Time Unit Days": "float64",
+      "Days In Period": "int64"
+    }
+  },
+  "freshness": {
+    "schema_version": "1.0",
+    "source_id": "scm_weekly",
+    "max_date": "2026-12-29",
+    "as_of": "2027-01-01",
+    "lag_days": 3,
+    "refresh_cadence": "weekly",
+    "is_stale": false
+  },
+  "columns": [
+    {
+      "schema_version": "1.0",
+      "name": "Week Start",
+      "dtype": "datetime64[us]",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Region",
+      "dtype": "str",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Product category",
+      "dtype": "str",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Supplier",
+      "dtype": "str",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": null,
+      "max": null,
+      "mean": null
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Units Ordered",
+      "dtype": "int64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 120.0,
+      "max": 36505.0,
+      "mean": 9742.643483231708
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Units Received",
+      "dtype": "int64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 116.0,
+      "max": 33956.0,
+      "mean": 9345.590701219513
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Backorder Units",
+      "dtype": "int64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 1.0,
+      "max": 10070.0,
+      "mean": 397.0527820121951
+    },
+    {
+      "schema_version": "1.0",
+      "name": "On Hand Units",
+      "dtype": "int64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 413.0,
+      "max": 100283.0,
+      "mean": 27896.7734375
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Supplier Fill Rate",
+      "dtype": "float64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 0.6669,
+      "max": 0.9992,
+      "mean": 0.9606402629573171
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Lead Time Days",
+      "dtype": "float64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 4.86,
+      "max": 26.4,
+      "mean": 11.128328887195122
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Stockout Days",
+      "dtype": "float64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 28,
+      "min": 0.0,
+      "max": 5.1,
+      "mean": 0.478938643292683
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Inbound Freight Cost",
+      "dtype": "float64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 209.3,
+      "max": 63097.17,
+      "mean": 17288.08427019817
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Purchase Price Per Unit",
+      "dtype": "float64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 2.5903,
+      "max": 386.9897,
+      "mean": 24.64708965320122
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Lead Time Unit Days",
+      "dtype": "float64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 1168.54,
+      "max": 456354.37,
+      "mean": 104046.23816882621
+    },
+    {
+      "schema_version": "1.0",
+      "name": "Days In Period",
+      "dtype": "int64",
+      "non_null": 5248,
+      "nulls": 0,
+      "zeros": 0,
+      "min": 7.0,
+      "max": 7.0,
+      "mean": 7.0
+    }
+  ],
+  "duplicate_groups": [],
+  "identities": [
+    {
+      "schema_version": "1.0",
+      "target": "Units Ordered",
+      "components": [
+        "Units Received",
+        "Backorder Units"
+      ],
+      "coefficients": [
+        1.0,
+        1.0
+      ],
+      "max_abs_residual": 0.0,
+      "kind": "linear_identity"
+    },
+    {
+      "schema_version": "1.0",
+      "target": "Units Received",
+      "components": [
+        "Units Ordered",
+        "Backorder Units"
+      ],
+      "coefficients": [
+        1.0,
+        -1.0
+      ],
+      "max_abs_residual": 0.0,
+      "kind": "linear_identity"
+    },
+    {
+      "schema_version": "1.0",
+      "target": "Backorder Units",
+      "components": [
+        "Units Ordered",
+        "Units Received"
+      ],
+      "coefficients": [
+        1.0,
+        -1.0
+      ],
+      "max_abs_residual": 0.0,
+      "kind": "linear_identity"
+    }
+  ],
+  "identity_groups": [
+    [
+      "Units Ordered",
+      "Units Received",
+      "Backorder Units"
+    ]
+  ],
+  "redundant_columns": {
+    "Units Ordered": "exact linear function of ['Units Received', 'Backorder Units']"
+  },
+  "coverage": [
+    {
+      "schema_version": "1.0",
+      "keys": [],
+      "n_slices": 1,
+      "filled_cells": 105,
+      "possible_cells": 105,
+      "mean_rows_per_cell": 49.981,
+      "sufficient": true
+    },
+    {
+      "schema_version": "1.0",
+      "keys": [
+        "Region"
+      ],
+      "n_slices": 5,
+      "filled_cells": 525,
+      "possible_cells": 525,
+      "mean_rows_per_cell": 9.996,
+      "sufficient": true
+    },
+    {
+      "schema_version": "1.0",
+      "keys": [
+        "Product category"
+      ],
+      "n_slices": 5,
+      "filled_cells": 525,
+      "possible_cells": 525,
+      "mean_rows_per_cell": 9.996,
+      "sufficient": true
+    },
+    {
+      "schema_version": "1.0",
+      "keys": [
+        "Supplier"
+      ],
+      "n_slices": 2,
+      "filled_cells": 210,
+      "possible_cells": 210,
+      "mean_rows_per_cell": 24.99,
+      "sufficient": true
+    },
+    {
+      "schema_version": "1.0",
+      "keys": [
+        "Region",
+        "Product category"
+      ],
+      "n_slices": 25,
+      "filled_cells": 2624,
+      "possible_cells": 2625,
+      "mean_rows_per_cell": 2.0,
+      "sufficient": false
+    },
+    {
+      "schema_version": "1.0",
+      "keys": [
+        "Region",
+        "Product category",
+        "Supplier"
+      ],
+      "n_slices": 50,
+      "filled_cells": 5248,
+      "possible_cells": 5250,
+      "mean_rows_per_cell": 1.0,
+      "sufficient": false
+    }
+  ]
+}
