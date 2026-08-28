@@ -67,8 +67,9 @@ def _create(client, **kw):
 
 def _attach(client, payload, company="demo-co", source="retail_daily"):
     return client.post(
-        f"/companies/{company}/sources/{source}/data",
+        "/sources/data",
         files={"file": ("upload.csv", payload, "text/csv")},
+        params={"company": company, "source_id": source},
     )
 
 
@@ -150,7 +151,7 @@ def test_attaching_a_matching_csv_makes_the_company_ready(client, narrow_csv):
     response = _attach(client, narrow_csv)
     assert response.status_code == 200
     assert response.json()["status"] == "ready"
-    assert client.get("/companies/demo-co").json()["status"] == "ready"
+    assert client.get("/company?company=demo-co").json()["status"] == "ready"
 
 
 def test_the_profile_is_cached_at_attach_time(client, narrow_csv):
@@ -170,7 +171,7 @@ def test_a_csv_missing_a_contract_column_is_refused_and_names_it(client, narrow_
     assert response.status_code == 422
     detail = response.json()["detail"]
     assert "Total Revenue" in detail and "New Customers" in detail
-    assert client.get("/companies/demo-co").json()["status"] == "awaiting_data"
+    assert client.get("/company?company=demo-co").json()["status"] == "awaiting_data"
 
 
 def test_a_rejected_upload_leaves_the_previous_data_in_place(client, narrow_csv):
@@ -182,7 +183,7 @@ def test_a_rejected_upload_leaves_the_previous_data_in_place(client, narrow_csv)
 
     assert _attach(client, b"Date,Region\n2025-01-01,West\n").status_code == 422
     assert Path(before).stat().st_size == size
-    assert client.get("/companies/demo-co").json()["status"] == "ready"
+    assert client.get("/company?company=demo-co").json()["status"] == "ready"
 
 
 def test_an_undeclared_source_is_a_404(client, narrow_csv):
@@ -201,7 +202,7 @@ def test_asking_a_company_with_no_data_is_refused_not_answered(client):
     abstention rules exist to prevent."""
     _create(client)
     response = client.post(
-        "/companies/demo-co/ask", json={"question": "what needs attention?", "no_llm": True}
+        "/ask?company=demo-co", json={"question": "what needs attention?", "no_llm": True}
     )
     assert response.status_code == 409
     assert "awaiting data" in response.json()["detail"]
@@ -227,9 +228,9 @@ ONBOARDING_CSV = (
 
 def _plan(client, company="demo-co", payload=ONBOARDING_CSV, **params):
     return client.post(
-        f"/companies/{company}/kpi-plan/sync",
+        "/kpi-plan/sync",
         files={"file": ("upload.csv", payload, "text/csv")},
-        params={"no_llm": True, **params},
+        params={"company": company, "no_llm": True, **params},
     )
 
 
@@ -265,7 +266,7 @@ def test_a_staged_upload_does_not_make_the_company_look_ready(client):
     against a contract that does not match its file."""
     _blank(client)
     _plan(client)
-    assert client.get("/companies/demo-co").json()["status"] == "awaiting_data"
+    assert client.get("/company?company=demo-co").json()["status"] == "awaiting_data"
     assert open_company("demo-co").staged_sources()
 
 
@@ -273,7 +274,7 @@ def test_asking_a_company_with_only_a_staged_upload_is_still_refused(client):
     _blank(client)
     _plan(client)
     response = client.post(
-        "/companies/demo-co/ask", json={"question": "what happened?", "no_llm": True}
+        "/ask?company=demo-co", json={"question": "what happened?", "no_llm": True}
     )
     assert response.status_code == 409
 
@@ -282,7 +283,7 @@ def test_confirming_a_plan_rewrites_the_contract_to_match_the_file(client):
     _blank(client)
     plan_id = _plan(client).json()["drafted"]["plan_id"]
     body = client.post(
-        "/companies/demo-co/kpi-plan/confirm/sync",
+        "/kpi-plan/confirm/sync?company=demo-co",
         json={"plan_id": plan_id, "no_llm": True, "warm_up": False},
     ).json()
 
@@ -304,7 +305,7 @@ def test_the_company_is_reopened_after_its_configs_are_rewritten(client):
     assert open_company("demo-co").contract("primary").kpis == []
     plan_id = _plan(client).json()["drafted"]["plan_id"]
     client.post(
-        "/companies/demo-co/kpi-plan/confirm/sync",
+        "/kpi-plan/confirm/sync?company=demo-co",
         json={"plan_id": plan_id, "no_llm": True, "warm_up": False},
     )
     assert open_company("demo-co").contract("primary").kpis
@@ -316,7 +317,7 @@ def test_a_confirmed_plan_archives_the_configs_it_replaced(client):
     _blank(client)
     plan_id = _plan(client).json()["drafted"]["plan_id"]
     client.post(
-        "/companies/demo-co/kpi-plan/confirm/sync",
+        "/kpi-plan/confirm/sync?company=demo-co",
         json={"plan_id": plan_id, "no_llm": True, "warm_up": False},
     )
     paths = open_company("demo-co")
@@ -329,7 +330,7 @@ def test_a_confirmed_plan_records_where_every_binding_came_from(client):
     _blank(client)
     plan_id = _plan(client).json()["drafted"]["plan_id"]
     client.post(
-        "/companies/demo-co/kpi-plan/confirm/sync",
+        "/kpi-plan/confirm/sync?company=demo-co",
         json={"plan_id": plan_id, "no_llm": True, "warm_up": False},
     )
     import json as _json
@@ -349,7 +350,7 @@ def test_a_plan_confirmed_with_every_kpi_rejected_is_refused_rather_than_written
     _blank(client)
     drafted = _plan(client).json()["drafted"]
     response = client.post(
-        "/companies/demo-co/kpi-plan/confirm/sync",
+        "/kpi-plan/confirm/sync?company=demo-co",
         json={
             "plan_id": drafted["plan_id"],
             "no_llm": True,
@@ -365,7 +366,7 @@ def test_a_stale_plan_id_is_refused_rather_than_merged_onto_the_current_draft(cl
     _blank(client)
     _plan(client)
     response = client.post(
-        "/companies/demo-co/kpi-plan/confirm/sync",
+        "/kpi-plan/confirm/sync?company=demo-co",
         json={"plan_id": "kpiplan-19700101-000000", "no_llm": True},
     )
     assert response.status_code == 409
@@ -375,7 +376,7 @@ def test_a_stale_plan_id_is_refused_rather_than_merged_onto_the_current_draft(cl
 def test_confirming_with_no_draft_at_all_is_a_404(client):
     _blank(client)
     response = client.post(
-        "/companies/demo-co/kpi-plan/confirm/sync",
+        "/kpi-plan/confirm/sync?company=demo-co",
         json={"plan_id": "kpiplan-19700101-000000", "no_llm": True},
     )
     assert response.status_code == 404
@@ -384,12 +385,12 @@ def test_confirming_with_no_draft_at_all_is_a_404(client):
 def test_the_draft_can_be_read_back_by_a_caller_that_did_not_create_it(client):
     _blank(client)
     plan_id = _plan(client).json()["drafted"]["plan_id"]
-    assert client.get("/companies/demo-co/kpi-plan").json()["plan_id"] == plan_id
+    assert client.get("/kpi-plan?company=demo-co").json()["plan_id"] == plan_id
 
 
 def test_a_company_with_no_draft_reports_404_rather_than_an_empty_plan(client):
     _blank(client)
-    assert client.get("/companies/demo-co/kpi-plan").status_code == 404
+    assert client.get("/kpi-plan?company=demo-co").status_code == 404
 
 
 def test_every_template_dag_names_only_its_own_contracts_kpis():

@@ -6,7 +6,7 @@
     python -m kpi_engine.cli.confirm_kpis --company acme --plan-id kpiplan-... \\
         --accept-all --reject "Churn Rate" --bind "ROAS.cost_of_ads=Ad Spend"
 
-The terminal half of `POST /companies/{c}/kpi-plan/confirm`. This is the writing
+The terminal half of `POST /kpi-plan/confirm?company=...`. This is the writing
 step: it replaces the company's `configs/semantics/kpis.yaml`,
 `configs/causal/dag.yaml`, its source spec and its `company.yaml`, archiving each
 under `configs/_superseded/<plan_id>/` first. All four are validated in memory

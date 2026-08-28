@@ -5,12 +5,28 @@ A third view of one run. `run_agent`, `POST /ask` and `POST /ask/sync` all drain
 the same question -- the same guarantee `render_console` has against
 `render_markdown`, extended one layer out.
 
-Every route below `/companies/{company}` is scoped to one tenant by its path
-segment rather than by a body field. That keeps `AskRequest` about the question,
-gives `GET .../runs/{run_id}` a company to resolve against, and lets FastAPI
-reject an unknown tenant with a 404 before the body is even parsed. The
-traversal guard is stronger for it: `_artefact` now roots three levels deeper,
-inside the company's own outputs.
+**Nothing is addressed by a path segment.** Every path here is a fixed literal,
+and every selector -- `company`, `source_id`, `run_id` -- is a query parameter:
+`GET /run?company=acme-retail&run_id=nightly`. A client builds one constant
+string and varies a parameter dict, rather than assembling URLs by
+interpolation. `company` is resolved once by the `_company` dependency; the
+other two are declared as `SourceId` and `RunId` below, so their descriptions
+and failure modes are written once for every route that takes them.
+
+They are query parameters rather than body fields because three of these routes
+carry a *file* in the body and could not be scoped by one. `company` stays out
+of the body for the same reason it always did: it keeps `AskRequest` about the
+question, and it gives `GET /run` a company to resolve against.
+
+FastAPI solves sub-dependencies before it validates params or body, so an
+unknown tenant is still a 404 raised before the body is parsed. A missing
+selector is a 422 naming it, where the old path shapes made it a route miss --
+refused by name rather than by the router failing to find a match.
+
+`run_id` is the one selector that reaches the filesystem, and moving it out of
+the path strengthens its guard rather than weakening it: it now arrives already
+decoded, so `_artefact` sees the `../..` a client actually sent instead of
+whatever survived path normalisation, and refuses it with a 400.
 
 There is still no authentication here, and `GET /companies` lists every tenant
 while `POST /companies` writes to disk. This service is meant to sit behind the
@@ -30,9 +46,9 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
@@ -85,6 +101,24 @@ _DEFAULT_ORIGINS = "http://localhost:3000,http://localhost:3001"
 # `X-Accel-Buffering` is what stops nginx holding a stage's event until the
 # response is large enough to be worth flushing, which defeats the whole point.
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+# The two selectors that are not the company. Declared once so every route that
+# takes one carries the same documentation, and so `/docs` explains them rather
+# than showing a bare string.
+SourceId = Annotated[
+    str,
+    Query(
+        description="Which of the company's declared sources. Never a filename: "
+        "an id the company's `company.yaml` names, and a 404 if it does not.",
+    ),
+]
+RunId = Annotated[
+    str,
+    Query(
+        description="Names a directory under the company's outputs/. Refused "
+        "with a 400 if it resolves outside them.",
+    ),
+]
 
 
 def _sse(name: str, payload: dict[str, Any]) -> bytes:
@@ -174,13 +208,14 @@ def create_app() -> FastAPI:
             ) from exc
         return describe_company(paths.slug)
 
-    @app.get("/companies/{company}")
+    @app.get("/company")
     def get_company(paths: CompanyPaths = Depends(_company)) -> dict[str, Any]:
+        """One tenant. Singular, because `GET /companies` is already the list."""
         return describe_company(paths.slug)
 
-    @app.post("/companies/{company}/sources/{source_id}/data")
+    @app.post("/sources/data")
     async def post_source_data(
-        source_id: str,
+        source_id: SourceId,
         file: UploadFile = File(...),
         paths: CompanyPaths = Depends(_company),
     ) -> dict[str, Any]:
@@ -207,7 +242,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {**describe_company(updated.slug), "warnings": warnings}
 
-    @app.post("/companies/{company}/ask")
+    @app.post("/ask")
     async def ask(
         req: AskRequest, request: Request, paths: CompanyPaths = Depends(_company)
     ) -> StreamingResponse:
@@ -219,7 +254,7 @@ def create_app() -> FastAPI:
                     if await request.is_disconnected():
                         # The worker runs to completion regardless and still
                         # writes outputs/<run_id>/, so the answer stays
-                        # recoverable from GET /runs/{run_id}. Pretending this
+                        # recoverable from GET /run?run_id=... Pretending this
                         # cancels the run would be the lie.
                         log.info("client disconnected; run continues to disk")
                         return
@@ -231,7 +266,7 @@ def create_app() -> FastAPI:
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    @app.post("/companies/{company}/ask/sync")
+    @app.post("/ask/sync")
     async def ask_sync(
         req: AskRequest, paths: CompanyPaths = Depends(_company)
     ) -> dict[str, Any]:
@@ -245,7 +280,7 @@ def create_app() -> FastAPI:
             events = [(n, p) async for n, p in _run(req, paths) if n]
         return collapse(events)
 
-    @app.post("/companies/{company}/kpi-plan")
+    @app.post("/kpi-plan")
     async def plan_kpis(
         request: Request,
         file: UploadFile = File(...),
@@ -289,7 +324,7 @@ def create_app() -> FastAPI:
 
         return StreamingResponse(body(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
-    @app.post("/companies/{company}/kpi-plan/sync")
+    @app.post("/kpi-plan/sync")
     async def plan_kpis_sync(
         file: UploadFile = File(...),
         source_id: str | None = None,
@@ -313,7 +348,7 @@ def create_app() -> FastAPI:
             ]
         return collapse(events)
 
-    @app.get("/companies/{company}/kpi-plan")
+    @app.get("/kpi-plan")
     def get_kpi_plan(paths: CompanyPaths = Depends(_company)) -> dict[str, Any]:
         """The current draft, so a caller can resume a handshake it did not start."""
         from kpi_engine.onboarding import UnknownPlan, load_draft
@@ -323,7 +358,7 @@ def create_app() -> FastAPI:
         except UnknownPlan as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    @app.post("/companies/{company}/kpi-plan/confirm")
+    @app.post("/kpi-plan/confirm")
     async def confirm_kpi_plan(
         req: ConfirmPlanRequest,
         request: Request,
@@ -354,7 +389,7 @@ def create_app() -> FastAPI:
 
         return StreamingResponse(body(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
-    @app.post("/companies/{company}/kpi-plan/confirm/sync")
+    @app.post("/kpi-plan/confirm/sync")
     async def confirm_kpi_plan_sync(
         req: ConfirmPlanRequest, paths: CompanyPaths = Depends(_company)
     ) -> dict[str, Any]:
@@ -371,12 +406,12 @@ def create_app() -> FastAPI:
             ]
         return collapse(events)
 
-    @app.get("/companies/{company}/runs/{run_id}")
-    def get_run(run_id: str, paths: CompanyPaths = Depends(_company)) -> Any:
+    @app.get("/run")
+    def get_run(run_id: RunId, paths: CompanyPaths = Depends(_company)) -> Any:
         return json.loads(_artefact(paths, run_id, "agent_report.json").read_text())
 
-    @app.get("/companies/{company}/runs/{run_id}/report", response_class=PlainTextResponse)
-    def get_report(run_id: str, paths: CompanyPaths = Depends(_company)) -> str:
+    @app.get("/run/report", response_class=PlainTextResponse)
+    def get_report(run_id: RunId, paths: CompanyPaths = Depends(_company)) -> str:
         return _artefact(paths, run_id, "agent_report.md").read_text()
 
     return app
@@ -437,12 +472,26 @@ def _safe_company_list() -> list[Any]:
         return []
 
 
-def _company(company: str) -> CompanyPaths:
-    """Resolve the path segment to a workspace, or 404.
+def _company(
+    company: str = Query(
+        ...,
+        description="Which tenant this call is about -- the `company_id` that "
+        "`GET /companies` reports. Required on every scoped route; there is no "
+        "default, because a run configured from whichever tenant happened to be "
+        "wired in reports one company's numbers under another's name.",
+    ),
+) -> CompanyPaths:
+    """Resolve the `company` query parameter to a workspace, or 404.
+
+    Declared once here rather than per route, so all eleven scoped routes take
+    the same parameter with the same documentation and the same failure modes.
 
     `company` cannot reach the filesystem as `../..`: `CompanySlug`'s pattern
     rejects it when the registry is parsed, so an unregistered value never gets
-    as far as being joined to a path.
+    as far as being joined to a path. That guard never depended on the selector
+    being a path segment, which is why moving it costs nothing here. No
+    `pattern=` on the parameter for the same reason -- a second gate would only
+    turn a 404 for an unknown tenant into a 422 for a malformed one.
     """
     try:
         return open_company(company)
@@ -464,7 +513,7 @@ def _require_data(paths: CompanyPaths) -> None:
             detail=(
                 f"Company '{paths.slug}' is awaiting data for "
                 f"{sorted(missing)}. POST a CSV to "
-                f"/companies/{paths.slug}/sources/<source_id>/data first."
+                f"/sources/data?company={paths.slug}&source_id=<source_id> first."
             ),
         )
 

@@ -4,7 +4,7 @@
     python -m kpi_engine.cli.plan_kpis --company acme --from-csv extract.csv --no-llm
     python -m kpi_engine.cli.plan_kpis --company acme --from-csv extract.csv --json
 
-The terminal half of `POST /companies/{c}/kpi-plan`. Both drain the same
+The terminal half of `POST /kpi-plan?company=...`. Both drain the same
 generator, so a plan proposed here and one proposed over HTTP cannot differ --
 the guarantee `stream_agent` gives `/ask`, extended to onboarding.
 

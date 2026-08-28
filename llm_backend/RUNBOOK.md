@@ -396,22 +396,35 @@ than four at once).
 | `GET /health` | status, default model, whether a key is present (never the key), company count. |
 | `GET /companies` | every registered tenant: sources, agent defaults, `status`, `problems`. |
 | `POST /companies` | provision a tenant. 201, or 409 on a duplicate slug, or 422 on a bad one. |
-| `GET /companies/{c}` | one tenant, as above. 404 if unregistered. |
-| `POST /companies/{c}/sources/{sid}/data` | attach a CSV (multipart `file`). 422 naming the missing columns if it does not match the contract. |
-| `POST /companies/{c}/kpi-plan` | `text/event-stream` — stage a CSV (multipart `file`) and propose a KPI configuration from it. |
-| `POST /companies/{c}/kpi-plan/sync` | the same, folded into one JSON object. What NestJS calls. |
-| `GET /companies/{c}/kpi-plan` | the current draft, or 404. Lets a caller resume a handshake it did not start. |
-| `POST /companies/{c}/kpi-plan/confirm` | `text/event-stream` — write the configs, accept the data, warm up. |
-| `POST /companies/{c}/kpi-plan/confirm/sync` | the same, folded. |
-| `POST /companies/{c}/ask` | `text/event-stream` — one typed event per stage, as it lands. |
-| `POST /companies/{c}/ask/sync` | the same events folded into one JSON object. |
-| `GET /companies/{c}/runs/{run_id}` | the saved `agent_report.json`. |
-| `GET /companies/{c}/runs/{run_id}/report` | the saved `agent_report.md`. |
+| `GET /company?company=` | one tenant, as above. 404 if unregistered. Singular, because `GET /companies` is already the list. |
+| `POST /sources/data?company=&source_id=` | attach a CSV (multipart `file`). 422 naming the missing columns if it does not match the contract. |
+| `POST /kpi-plan?company=` | `text/event-stream` — stage a CSV (multipart `file`) and propose a KPI configuration from it. |
+| `POST /kpi-plan/sync?company=` | the same, folded into one JSON object. What NestJS calls. |
+| `GET /kpi-plan?company=` | the current draft, or 404. Lets a caller resume a handshake it did not start. |
+| `POST /kpi-plan/confirm?company=` | `text/event-stream` — write the configs, accept the data, warm up. |
+| `POST /kpi-plan/confirm/sync?company=` | the same, folded. |
+| `POST /ask?company=` | `text/event-stream` — one typed event per stage, as it lands. |
+| `POST /ask/sync?company=` | the same events folded into one JSON object. |
+| `GET /run?company=&run_id=` | the saved `agent_report.json`. |
+| `GET /run/report?company=&run_id=` | the saved `agent_report.md`. |
 | `GET /docs` | the generated OpenAPI page. |
 
-The company is a path segment, not a body field: it belongs to the route, and it
-gives `GET .../runs/{run_id}` something to resolve against. Asking a
-company whose data has not arrived is a 409, not an empty report.
+**Nothing is addressed by a path segment.** Every path above is a fixed literal
+and every selector — `company`, `source_id`, `run_id` — is a query parameter, so
+a client builds one constant string and varies a parameter dict instead of
+assembling URLs by interpolation.
+
+`?company=` is required on every scoped route, resolved by one dependency with
+one set of failure modes: an unregistered tenant is a 404 raised before the body
+is parsed, and omitting the parameter is a 422 naming it — the invariant that
+there is no default company, enforced where a caller reads it. The selectors are
+parameters rather than body fields because three of these routes carry a *file*
+in the body and could not be scoped by one.
+
+`run_id` is the only selector that reaches the filesystem. As a parameter it
+arrives already decoded, so a `../..` is refused with a 400 as sent rather than
+as whatever path normalisation left behind. Asking a company whose data has not
+arrived is a 409, not an empty report.
 
 The `ask` body mirrors the `ask` flags above: `question`, `persona`,
 `time_grain`, `entity_keys`, `model`, `no_llm`, `top_events`, `run_id`,
@@ -448,11 +461,11 @@ easy way to have it arrive as a load filter that starves the baseline instead.
 
 A run keeps going after a client disconnects and still writes
 `user/<company>/outputs/<run_id>/`, so the answer stays recoverable from
-`GET /companies/{company}/runs/{run_id}`.
+`GET /run?company=...&run_id=...`.
 
 ### Onboarding events
 
-`POST /companies/{c}/kpi-plan`:
+`POST /kpi-plan?company=...`:
 
 | event | carries |
 |---|---|
@@ -464,7 +477,7 @@ A run keeps going after a client disconnects and still writes
 | `drafted` | `plan_id`, `proposed[]`, `recommended[]`, `unavailable[]`, `problems[]`, token counts. |
 | `done` | `outcome` (`drafted` \| `error`), `duration_ms`. |
 
-`POST /companies/{c}/kpi-plan/confirm`:
+`POST /kpi-plan/confirm?company=...`:
 
 | event | carries |
 |---|---|
@@ -482,35 +495,35 @@ draft rather than merging stale decisions onto it. No draft at all is a **404**.
 
 There is no job registry. The warm-up writes `outputs/<run_id>/` like any run, and
 `started` names that `run_id` before any work begins, so a client that hangs up
-polls `GET /companies/{c}/runs/{run_id}` exactly as it would for `/ask`.
+polls `GET /run?company=...&run_id=...` exactly as it would for `/ask`.
 
 ```bash
 curl localhost:8000/companies
 
 # deterministic, no key needed
-curl -N -X POST localhost:8000/companies/acme-retail/ask -H 'content-type: application/json' \
+curl -N -X POST 'localhost:8000/ask?company=acme-retail' -H 'content-type: application/json' \
   -d '{"question":"what needs attention?","no_llm":true,"persona":"exec"}'
 
 # the two-model-call path
-curl -N -X POST localhost:8000/companies/acme-retail/ask -H 'content-type: application/json' -d '{
+curl -N -X POST 'localhost:8000/ask?company=acme-retail' -H 'content-type: application/json' -d '{
   "question":"Why did CAC rise and ROAS fall in the West region between mid-March and early April 2026?",
   "persona":"analyst","time_grain":"week","entity_keys":["Region"]}'
 
 # provision a tenant, then give it data
 curl -X POST localhost:8000/companies -H 'content-type: application/json' \
   -d '{"company_id":"demo-co","display_name":"Demo Co","domains":["retail"]}'
-curl -F file=@extract.csv localhost:8000/companies/demo-co/sources/retail_daily/data
+curl -F file=@extract.csv 'localhost:8000/sources/data?company=demo-co&source_id=retail_daily'
 
 # ...or, when the extract matches no shipped contract, derive one from it
 curl -X POST localhost:8000/companies -H 'content-type: application/json' \
   -d '{"company_id":"odd-co","display_name":"Odd Co","domains":["other"],"template":"blank"}'
-curl -F file=@extract.csv 'localhost:8000/companies/odd-co/kpi-plan/sync?no_llm=false'
-curl localhost:8000/companies/odd-co/kpi-plan            # read the draft back
-curl -N -X POST localhost:8000/companies/odd-co/kpi-plan/confirm \
+curl -F file=@extract.csv 'localhost:8000/kpi-plan/sync?company=odd-co&no_llm=false'
+curl 'localhost:8000/kpi-plan?company=odd-co'           # read the draft back
+curl -N -X POST 'localhost:8000/kpi-plan/confirm?company=odd-co' \
   -H 'content-type: application/json' -d '{
   "plan_id":"kpiplan-20260828-041932",
   "decisions":[{"name":"Churn Rate","verdict":"reject"}]}'
-curl localhost:8000/companies/odd-co                     # status: ready
+curl 'localhost:8000/company?company=odd-co'            # status: ready
 ```
 
 ---

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import urlencode
 
 import pytest
 from fastapi.testclient import TestClient
@@ -46,8 +47,15 @@ def demo_paths():
     return open_company(DEMO)
 
 
-def _url(path: str, company: str = DEMO) -> str:
-    return f"/companies/{company}{path}"
+def _url(path: str, company: str = DEMO, **selectors: str) -> str:
+    """A route and its selectors. Every path here is a fixed literal.
+
+    `company` is on every scoped route; `run_id` and `source_id` are passed by
+    keyword where a route takes one. Encoding them properly is the point of
+    going through `urlencode`: a traversal test that sends `../..` must have it
+    arrive as `../..`, not as something a path normaliser already flattened.
+    """
+    return f"{path}?{urlencode({'company': company, **selectors})}"
 
 
 def _body(**kw) -> dict:
@@ -185,24 +193,59 @@ def test_the_confirm_request_mirrors_the_confirm_cli():
 
 
 def test_an_unknown_run_is_a_404_not_a_traceback(client):
-    assert client.get(_url("/runs/no-such-run")).status_code == 404
+    assert client.get(_url("/run", run_id="no-such-run")).status_code == 404
 
 
 def test_an_unknown_company_is_a_404_not_a_traceback(client):
-    assert client.get("/companies/no-such-company").status_code == 404
-    assert client.post("/companies/no-such-company/ask", json=_body()).status_code == 404
+    assert client.get(_url("/company", "no-such-company")).status_code == 404
+    assert client.post(_url("/ask", "no-such-company"), json=_body()).status_code == 404
+
+
+def test_no_selector_is_addressed_by_a_path_segment(client):
+    """The selectors moved out of the URL; the guarantees around them did not.
+
+    Every path is a fixed literal, so a client builds one constant string and
+    varies a parameter dict. An omitted selector is now refused *by name* rather
+    than by the router failing to find a match -- which is how the standing
+    invariant that a company is required everywhere, with no default, reaches
+    the one place a caller actually reads.
+    """
+    for path, json_body in (("/ask", _body()), ("/run", None), ("/run/report", None)):
+        missing = client.request("POST" if json_body else "GET", path, json=json_body)
+        assert missing.status_code == 422, path
+        assert "company" in json.dumps(missing.json()), path
+
+    # `run_id` is required too, and named when it is absent.
+    missing_run = client.get(_url("/run"))
+    assert missing_run.status_code == 422
+    assert "run_id" in json.dumps(missing_run.json())
+
+    # No compatibility aliases: one route per thing.
+    assert client.post("/companies/acme-retail/ask", json=_body()).status_code == 404
+    assert client.get(_url("/runs/nightly")).status_code == 404
+
+    # And the traversal guards never depended on a path segment.
+    assert client.get(_url("/company", "../..")).status_code == 404
+    assert client.post(_url("/ask", "../.."), json=_body()).status_code == 404
 
 
 def test_a_run_id_cannot_climb_out_of_outputs(client):
-    """`run_id` names a directory, so it is the one field that could read a file
-    it was never meant to."""
-    assert client.get(_url("/runs/..%2F..%2F.env")).status_code in (400, 404)
+    """`run_id` names a directory, so it is the one selector that could read a
+    file it was never meant to.
+
+    As a query parameter it arrives *decoded*, so this is the `../../.env` the
+    client actually sent rather than whatever a path normaliser left behind --
+    which makes the guard easier to test honestly, not harder.
+    """
+    assert client.get(_url("/run", run_id="../../.env")).status_code in (400, 404)
 
 
 def test_a_run_id_cannot_climb_into_another_company(client, demo_paths):
     """The guard that matters most once outputs are per-tenant: one company's run
     id must not resolve into another company's directory."""
-    assert client.get(_url("/runs/..%2Facme-retail", FIXTURE)).status_code in (400, 404)
+    assert client.get(
+        _url("/run", FIXTURE, run_id="../acme-retail")
+    ).status_code in (400, 404)
     with pytest.raises(Exception):
         open_company(FIXTURE).artefact("../acme-retail", "agent_report.json")
 
@@ -321,8 +364,8 @@ def test_a_finished_run_is_readable_afterwards(client):
     run_id = "pytest-api-artefacts"
     client.post(_url("/ask/sync"), json=_body(run_id=run_id))
 
-    assert client.get(_url(f"/runs/{run_id}")).json()["run_id"] == run_id
-    assert client.get(_url(f"/runs/{run_id}/report")).text.startswith("#")
+    assert client.get(_url("/run", run_id=run_id)).json()["run_id"] == run_id
+    assert client.get(_url("/run/report", run_id=run_id)).text.startswith("#")
 
 
 # --------------------------------------------------------------------------- #

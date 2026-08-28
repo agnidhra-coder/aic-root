@@ -3,7 +3,7 @@
 # Every other template ships KPIs, because it knows what its domain's extract
 # looks like. This one ships none, on purpose: it exists for a company whose CSV
 # nobody has seen, and it is filled in by the onboarding handshake --
-# `POST /companies/{c}/kpi-plan`, then `.../kpi-plan/confirm`, which rewrites
+# `POST /kpi-plan?company=...`, then `/kpi-plan/confirm`, which rewrites
 # `configs/semantics/kpis.yaml` and `configs/causal/dag.yaml` from the file
 # itself.
 #

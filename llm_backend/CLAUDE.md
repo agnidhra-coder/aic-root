@@ -78,13 +78,13 @@ uv run python -m kpi_engine.cli.ask --company $C "..." --persona analyst \
 # the same thing over HTTP, one typed event per stage as it lands
 uv run python -m kpi_api                         # 127.0.0.1:8000, /docs for the schema
 curl localhost:8000/companies
-curl -N -X POST localhost:8000/companies/$C/ask -H 'content-type: application/json' \
+curl -N -X POST "localhost:8000/ask?company=$C" -H 'content-type: application/json' \
   -d '{"question":"what needs attention?","no_llm":true,"persona":"exec"}'
 
 # provision over HTTP, then give it data
 curl -X POST localhost:8000/companies -H 'content-type: application/json' \
   -d '{"company_id":"demo-co","display_name":"Demo Co","domains":["retail"]}'
-curl -F file=@extract.csv localhost:8000/companies/demo-co/sources/retail_daily/data
+curl -F file=@extract.csv 'localhost:8000/sources/data?company=demo-co&source_id=retail_daily'
 
 # end to end
 uv run python -m kpi_engine.cli.run_pipeline --company $C \
@@ -206,11 +206,19 @@ Onboarding's deterministic half is in the engine, where it belongs:
   `models.py` mirrors the `ask` flags and adds `CreateCompanyRequest`;
   `__main__.py` starts uvicorn.
 
-Routes: `GET /health`, `GET|POST /companies`, `GET /companies/{c}`,
-`POST /companies/{c}/sources/{sid}/data`, `POST /companies/{c}/ask[/sync]`,
-`GET /companies/{c}/runs/{run_id}[/report]`,
-`GET|POST /companies/{c}/kpi-plan[/sync]`,
-`POST /companies/{c}/kpi-plan/confirm[/sync]`.
+Routes: `GET /health`, `GET|POST /companies`, `GET /company`,
+`POST /sources/data`, `POST /ask[/sync]`, `GET /run[/report]`,
+`GET|POST /kpi-plan[/sync]`, `POST /kpi-plan/confirm[/sync]`.
+
+**No route has a path parameter.** Every path is a fixed literal and every
+selector — `company`, `source_id`, `run_id` — is a query parameter, so a client
+builds one constant string and varies a parameter dict. `?company=` is required
+on every route but `/health` and `/companies`, resolved by one dependency, so all
+eleven share the same failure modes: an unregistered tenant is a 404 raised
+before the body is parsed, and omitting the parameter is a 422 naming it. They
+are parameters rather than body fields because three of these routes carry a
+*file* in the body. `run_id` arrives decoded, so `_artefact` refuses a `../..`
+with a 400 as the client sent it.
 
 ## The wider system
 
@@ -254,20 +262,20 @@ with no RLS. Until a `companies` table exists, the mapping lives in
    `supabase_user_ids`. Use `"template": "blank"` when the extract is not known
    to match a shipped domain contract.
 2. Forward the CSV buffer NestJS already holds — it never re-reads from storage —
-   to `POST /companies/{slug}/sources/{source_id}/data`.
-3. `POST /companies/{slug}/ask`.
+   to `POST /sources/data?company={slug}&source_id={source_id}`.
+3. `POST /ask?company={slug}`.
 
 **When the CSV does not match any template contract**, step 2 is a 422 and the
 handshake replaces it. `server/`'s `run()` is synchronous-shaped and there is no
 SSE client in `server/`, so it calls the `/sync` twins:
 
-2a. `POST /companies/{slug}/kpi-plan/sync` (multipart, the same buffer). Returns
+2a. `POST /kpi-plan/sync?company={slug}` (multipart, the same buffer). Returns
     a `KpiPlan`: `proposed[]` with each KPI's bound columns and `recommended`,
     `unavailable[]` with the reason each was not offered, and `columns[]` saying
     what became of every column. The wizard UI already in `frontend/` renders
     this; nothing about it needs a new `AnalysisResult` field, because onboarding
     happens *before* an analysis exists.
-2b. `POST /companies/{slug}/kpi-plan/confirm/sync` with `{plan_id, decisions[]}`.
+2b. `POST /kpi-plan/confirm/sync?company={slug}` with `{plan_id, decisions[]}`.
     Writes the tenant's configs, accepts the data, and warms the pipeline.
 
 A decision that does not validate is a 422 with nothing written; a `plan_id` that
@@ -540,7 +548,7 @@ All paths below are under `user/acme-retail/`.
   missing a KPI's measure. A new company's KPIs are whatever its template
   declares — or, when no template fits its extract, whatever the onboarding
   handshake derives from the file itself: seed from `blank`, then `plan_kpis`
-  and `confirm_kpis` (or `POST .../kpi-plan` and `.../kpi-plan/confirm`).
+  and `confirm_kpis` (or `POST /kpi-plan?company=…` and `/kpi-plan/confirm`).
 - **A catalogue KPI** (offered to every tenant): a row in
   `templates/reference/kpi_list.csv` for humans, and an entry in
   `templates/reference/kpi_catalog.yaml` for the binder — measure aliases with

@@ -4,7 +4,7 @@
 # the right answer: a company seeded from this template has not been configured,
 # and claiming metrics its file cannot produce would be worse than claiming none.
 #
-# `POST /companies/{c}/kpi-plan/confirm` overwrites this file with a contract
+# `POST /kpi-plan/confirm?company=...` overwrites this file with a contract
 # derived from `templates/reference/kpi_catalog.yaml` and the tenant's own
 # columns. `write_yaml` uses `safe_dump`, so these comments do not survive that
 # -- the provenance lives in `configs/_confirmed/kpi_plan.json`, which records

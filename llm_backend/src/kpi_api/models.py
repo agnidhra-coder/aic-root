@@ -18,8 +18,10 @@ they were an arbitrary-file-read surface. A source is now named by the id its
 company declared, and nothing else can name a file over the wire.
 `test_no_ask_field_names_a_path` pins that.
 
-The company is not here either -- it is a path segment,
-`POST /companies/{company}/ask`. It belongs to the route, not to the question.
+The company is not here either -- it is a query parameter,
+`POST /ask?company=acme-retail`. It belongs to the call, not to the question,
+and it is a parameter rather than a body field because the onboarding routes
+carry a *file* in the body and could not be scoped by one.
 """
 
 from __future__ import annotations
@@ -129,7 +131,7 @@ class CreateCompanyRequest(Strict):
     Deliberately bare bones: it carries no KPI fields, and still should not. A
     company created here gets its template's KPIs; a company whose extract does
     not match any template gets them from the onboarding handshake instead --
-    `POST /companies/{c}/kpi-plan`, then `.../kpi-plan/confirm`, which rewrites
+    `POST /kpi-plan?company=...`, then `/kpi-plan/confirm`, which rewrites
     `configs/semantics/` and `configs/causal/` from the file itself. Either way
     exactly one thing decides what a company measures, and it is never this body.
 
@@ -138,8 +140,8 @@ class CreateCompanyRequest(Strict):
 
     A company is created *before* it has data. Its sources come from the template
     and point at files that do not exist yet, so it reports `awaiting_data` until
-    a CSV is attached at `POST /companies/{company}/sources/{source_id}/data`, or
-    until an onboarding plan is confirmed.
+    a CSV is attached at `POST /sources/data?company=...&source_id=...`, or until
+    an onboarding plan is confirmed.
     """
 
     company_id: CompanySlug
@@ -162,9 +164,10 @@ class CreateCompanyRequest(Strict):
 
 
 class PlanKpisRequest(Strict):
-    """`POST /companies/{c}/kpi-plan` -- propose a KPI configuration from a CSV.
+    """`POST /kpi-plan?company=...` -- propose a KPI configuration from a CSV.
 
-    The file arrives as multipart; these are the knobs beside it. As with
+    The file arrives as multipart; these are the knobs beside it, as query
+    parameters for the same reason the company selector is one. As with
     `AskRequest`, **no field names a filesystem path**: the upload is a body part
     and the source is named by the id its company declared.
     """
@@ -188,7 +191,7 @@ class PlanKpisRequest(Strict):
 
 
 class ConfirmPlanRequest(Strict):
-    """`POST /companies/{c}/kpi-plan/confirm` -- accept, edit, and commit a draft.
+    """`POST /kpi-plan/confirm?company=...` -- accept, edit, and commit a draft.
 
     Mirrors `PlanConfirmation` field for field, plus the transport knobs -- the
     same relationship `AskRequest` has to the `ask` CLI, so the terminal and the

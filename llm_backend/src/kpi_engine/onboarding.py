@@ -452,7 +452,7 @@ def load_draft(paths: CompanyPaths) -> KpiPlan:
     if not path.exists():
         raise UnknownPlan(
             f"Company '{paths.slug}' has no drafted KPI plan. "
-            f"POST /companies/{paths.slug}/kpi-plan with a CSV first."
+            f"POST /kpi-plan?company={paths.slug} with a CSV first."
         )
     return KpiPlan.model_validate(read_json(path))
 

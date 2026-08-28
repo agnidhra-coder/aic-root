@@ -446,7 +446,7 @@ class CompanyPaths:
     def validate(self) -> list[str]:
         """Every declared path exists and loads. Returns problems, never raises.
 
-        What `init_company --check` and `GET /companies/{company}` both report.
+        What `init_company --check` and `GET /company?company=...` both report.
         A source whose *dataset* is absent is not a problem here -- that is
         `missing_datasets`, and it is an expected state for a freshly created
         company.
