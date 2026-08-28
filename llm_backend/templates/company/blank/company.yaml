@@ -1,0 +1,48 @@
+# A tenant whose shape is not known yet.
+#
+# Every other template ships KPIs, because it knows what its domain's extract
+# looks like. This one ships none, on purpose: it exists for a company whose CSV
+# nobody has seen, and it is filled in by the onboarding handshake --
+# `POST /companies/{c}/kpi-plan`, then `.../kpi-plan/confirm`, which rewrites
+# `configs/semantics/kpis.yaml` and `configs/causal/dag.yaml` from the file
+# itself.
+#
+# Seeding such a tenant from `retail` instead would make it claim five KPIs it
+# very likely cannot compute, and `data_ready` would be false for a reason that
+# reads like a missing upload rather than a contract that never matched. An
+# empty contract is the honest state for a company that has not been configured.
+#
+# Like every template this is a real `CompanySpec` -- `create_company` loads and
+# validates it, then overrides identity and agent defaults -- so if it stops
+# parsing, `init_company --check` says so rather than some tenant's first
+# question.
+company_id: template-blank
+display_name: Blank template
+domains: [other]
+created_at: 2026-08-28
+notes: >
+  No KPIs and an empty DAG, to be written from the tenant's own extract by the
+  onboarding handshake. Detection, EDA and personas are the shared defaults and
+  need no per-tenant knowledge.
+
+sources:
+  - source_id: primary
+    role: primary
+    domain: other
+    source: configs/sources/primary.yaml
+    contract: configs/semantics/kpis.yaml
+    label: Primary extract
+
+configs:
+  graph: configs/causal/dag.yaml
+  detection: configs/detection/default.yaml
+  eda: configs/eda/default.yaml
+  personas: configs/agent/personas.yaml
+
+# Placeholders. `confirm` replaces both from what the file turns out to carry:
+# the grain from its date span against the detector's training requirement, the
+# dimensions from its own low-cardinality columns.
+agent:
+  time_grain: week
+  entity_keys: []
+  top_events: 5

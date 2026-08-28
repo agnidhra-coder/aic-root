@@ -58,9 +58,16 @@ from kpi_engine.tenancy import (
     user_root,
 )
 
+from pydantic import ValidationError
+
 from kpi_api import logbus
-from kpi_api.events import Event, ask_events, collapse
-from kpi_api.models import AskRequest, CreateCompanyRequest
+from kpi_api.events import Event, ask_events, collapse, confirm_events, plan_events
+from kpi_api.models import (
+    AskRequest,
+    ConfirmPlanRequest,
+    CreateCompanyRequest,
+    PlanKpisRequest,
+)
 
 log = logging.getLogger("kpi_api")
 
@@ -74,6 +81,10 @@ MAX_CONCURRENT_RUNS = int(os.environ.get("KPI_API_MAX_CONCURRENT_RUNS", "2"))
 KEEPALIVE_SECONDS = 15.0
 
 _DEFAULT_ORIGINS = "http://localhost:3000,http://localhost:3001"
+
+# `X-Accel-Buffering` is what stops nginx holding a stage's event until the
+# response is large enough to be worth flushing, which defeats the whole point.
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
 def _sse(name: str, payload: dict[str, Any]) -> bytes:
@@ -234,6 +245,132 @@ def create_app() -> FastAPI:
             events = [(n, p) async for n, p in _run(req, paths) if n]
         return collapse(events)
 
+    @app.post("/companies/{company}/kpi-plan")
+    async def plan_kpis(
+        request: Request,
+        file: UploadFile = File(...),
+        source_id: str | None = None,
+        model: str | None = None,
+        no_llm: bool = False,
+        plan_id: str | None = None,
+        logs: bool = True,
+        paths: CompanyPaths = Depends(_company),
+    ) -> StreamingResponse:
+        """Propose a KPI configuration from an uploaded CSV.
+
+        The upload is *staged*, not accepted: it lands outside every declared
+        source path, so the company stays `awaiting_data` and `/ask` keeps
+        refusing it until a plan is confirmed. A tenant is never briefly
+        answerable against a contract that does not match its data.
+
+        Streams because profiling a wide extract takes minutes, and a silent
+        socket is indistinguishable from a hung one.
+        """
+        req = _plan_request(source_id, model, no_llm, plan_id, logs)
+        if req.source_id and req.source_id not in paths.spec.source_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Company '{paths.slug}' declares no source '{req.source_id}'. "
+                f"Known: {paths.spec.source_ids}",
+            )
+        content = await file.read()
+
+        async def body() -> AsyncIterator[bytes]:
+            async with app.state.runs:
+                llm = _maybe_llm(req.no_llm, req.model)
+                async for name, payload in _pump(
+                    lambda: plan_events(req, llm, paths=paths, content=content),
+                    logs=req.logs,
+                ):
+                    if await request.is_disconnected():
+                        log.info("client disconnected; the draft is still written")
+                        return
+                    yield _sse(name, payload) if name else b": keepalive\n\n"
+
+        return StreamingResponse(body(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    @app.post("/companies/{company}/kpi-plan/sync")
+    async def plan_kpis_sync(
+        file: UploadFile = File(...),
+        source_id: str | None = None,
+        model: str | None = None,
+        no_llm: bool = False,
+        plan_id: str | None = None,
+        paths: CompanyPaths = Depends(_company),
+    ) -> dict[str, Any]:
+        """The same events, folded into one object. What the NestJS tier calls."""
+        req = _plan_request(source_id, model, no_llm, plan_id, logs=False)
+        content = await file.read()
+        async with app.state.runs:
+            llm = _maybe_llm(req.no_llm, req.model)
+            events = [
+                (n, p)
+                async for n, p in _pump(
+                    lambda: plan_events(req, llm, paths=paths, content=content),
+                    logs=False,
+                )
+                if n
+            ]
+        return collapse(events)
+
+    @app.get("/companies/{company}/kpi-plan")
+    def get_kpi_plan(paths: CompanyPaths = Depends(_company)) -> dict[str, Any]:
+        """The current draft, so a caller can resume a handshake it did not start."""
+        from kpi_engine.onboarding import UnknownPlan, load_draft
+
+        try:
+            return load_draft(paths).model_dump(mode="json")
+        except UnknownPlan as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/companies/{company}/kpi-plan/confirm")
+    async def confirm_kpi_plan(
+        req: ConfirmPlanRequest,
+        request: Request,
+        paths: CompanyPaths = Depends(_company),
+    ) -> StreamingResponse:
+        """Commit a decided plan: write the configs, accept the data, warm up.
+
+        The merge and the synthesis run *here*, before the response starts, so a
+        decision that does not validate is a 422 with nothing written rather than
+        an error event arriving inside a 200. Everything after that touches disk
+        and takes minutes, which is what the stream is for.
+        """
+        prepared = _prepare(paths, req)
+
+        async def body() -> AsyncIterator[bytes]:
+            async with app.state.runs:
+                llm = _maybe_llm(req.no_llm, req.model)
+                async for name, payload in _pump(
+                    lambda: confirm_events(req, llm, paths=paths, prepared=prepared),
+                    logs=req.logs,
+                ):
+                    if await request.is_disconnected():
+                        # The worker runs to completion regardless: the configs
+                        # land and the warm-up still writes outputs/<run_id>/.
+                        log.info("client disconnected; the run continues to disk")
+                        return
+                    yield _sse(name, payload) if name else b": keepalive\n\n"
+
+        return StreamingResponse(body(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+    @app.post("/companies/{company}/kpi-plan/confirm/sync")
+    async def confirm_kpi_plan_sync(
+        req: ConfirmPlanRequest, paths: CompanyPaths = Depends(_company)
+    ) -> dict[str, Any]:
+        prepared = _prepare(paths, req)
+        async with app.state.runs:
+            llm = _maybe_llm(req.no_llm, req.model)
+            events = [
+                (n, p)
+                async for n, p in _pump(
+                    lambda: confirm_events(req, llm, paths=paths, prepared=prepared),
+                    logs=False,
+                )
+                if n
+            ]
+        return collapse(events)
+
     @app.get("/companies/{company}/runs/{run_id}")
     def get_run(run_id: str, paths: CompanyPaths = Depends(_company)) -> Any:
         return json.loads(_artefact(paths, run_id, "agent_report.json").read_text())
@@ -243,6 +380,53 @@ def create_app() -> FastAPI:
         return _artefact(paths, run_id, "agent_report.md").read_text()
 
     return app
+
+
+def _plan_request(
+    source_id: str | None,
+    model: str | None,
+    no_llm: bool,
+    plan_id: str | None,
+    logs: bool,
+) -> PlanKpisRequest:
+    """Build and validate the plan request from query parameters.
+
+    Assembled rather than declared as a body model because the CSV occupies the
+    body. Going through the model keeps `plan_id`'s pattern -- it becomes a
+    directory name under `configs/_superseded/` -- enforced in one place.
+    """
+    try:
+        return PlanKpisRequest(
+            source_id=source_id, model=model, no_llm=no_llm,
+            plan_id=plan_id, logs=logs,
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
+def _prepare(paths: CompanyPaths, req: ConfirmPlanRequest) -> Any:
+    """Merge and synthesise inside the request, so a bad decision writes nothing.
+
+    Pure and fast -- no file is touched until `commit`. A 422 here is worth far
+    more than an `error` event inside a 200 the client has already started
+    rendering.
+    """
+    from kpi_agent.onboard import prepare
+    from kpi_engine.onboarding import OnboardingError, StalePlan, UnknownPlan
+
+    try:
+        return prepare(paths, req.as_confirmation())
+    except UnknownPlan as exc:
+        # Nothing to confirm: a missing resource.
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except StalePlan as exc:
+        # A draft exists but has moved on. A conflict, not a missing thing --
+        # the fix is to re-read the draft, not to create one.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OnboardingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _safe_company_list() -> list[Any]:
@@ -307,15 +491,39 @@ async def _run(
 
     A `None` name is a keepalive rather than an event.
     """
-    llm = None
-    if not req.no_llm:
-        try:
-            llm = build_llm(req.model)
-        except LlmUnavailable as exc:
-            # A missing key must not cost the analysis. The deterministic path
-            # still runs and still reports; it just reports in plainer prose.
-            log.info("no model available (%s); running the deterministic path", exc)
+    llm = _maybe_llm(req.no_llm, req.model)
+    async for item in _pump(lambda: ask_events(req, llm, paths=paths), logs=req.logs):
+        yield item
 
+
+def _maybe_llm(no_llm: bool, model: str | None) -> Any:
+    """The model for a run, or None.
+
+    A missing key must never cost the work. Every flow here has a deterministic
+    path, so an unavailable model degrades what the answer contains, never
+    whether there is one.
+    """
+    if no_llm:
+        return None
+    try:
+        return build_llm(model)
+    except LlmUnavailable as exc:
+        log.info("no model available (%s); running the deterministic path", exc)
+        return None
+
+
+async def _pump(
+    make_events: Any, *, logs: bool
+) -> AsyncIterator[tuple[str | None, dict[str, Any]]]:
+    """Run a synchronous event generator on a worker thread, off the event loop.
+
+    Everything the engine does is CPU-bound -- pandas, statsmodels, ruptures --
+    with blocking model calls of up to 150s in between, so it cannot run on the
+    loop. `make_events` is a thunk rather than an iterator because it must be
+    *called* inside the thread: the generator body would otherwise start on
+    whichever thread first advanced it, and the `logbus` ContextVar that keeps
+    two concurrent runs' log lines apart is set in here.
+    """
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[Event | None] = asyncio.Queue()
 
@@ -323,12 +531,10 @@ async def _run(
         loop.call_soon_threadsafe(queue.put_nowait, (name, payload))
 
     def worker() -> None:
-        # Set inside the thread: this is what keeps two concurrent runs' log
-        # lines from arriving in each other's streams.
-        sink = (lambda record: emit("log", record)) if req.logs else None
+        sink = (lambda record: emit("log", record)) if logs else None
         try:
             with logbus.capturing(sink):
-                for name, payload in ask_events(req, llm, paths=paths):
+                for name, payload in make_events():
                     emit(name, payload)
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, None)

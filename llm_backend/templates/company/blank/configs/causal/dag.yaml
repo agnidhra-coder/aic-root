@@ -1,0 +1,17 @@
+# An empty graph, to be derived rather than copied.
+#
+# The other templates ship a hand-authored DAG because they know their domain's
+# columns. This one cannot: it does not know what the extract holds, and a graph
+# naming columns a tenant lacks is not merely useless -- `attach_source_data`
+# warns about every one of them, and the noise hides the cases that matter.
+#
+# `confirm` writes this file from the accepted contract. Its nodes and its
+# `deterministic` edges are a mechanical consequence of that contract -- a
+# measure feeds the KPI whose expression names it -- and `forbidden_edges` is
+# seeded with the reverse of each, because a KPI cannot cause its own inputs.
+# Only `causal` edges and lever ownership are ever proposed by a model, and each
+# is checked against this graph before it is kept.
+graph_id: blank_v1
+nodes: []
+edges: []
+forbidden_edges: []

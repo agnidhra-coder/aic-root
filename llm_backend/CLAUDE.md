@@ -10,10 +10,20 @@ Two packages with a hard boundary between them.
 attributes them to drivers, and emits structured evidence. **No LLM anywhere in
 `kpi_engine`** — that is deliberate, not an omission, and it must stay true.
 
-`src/kpi_agent/` is the LangGraph layer on top. It calls a model exactly twice —
-once to turn a plain-language question into a validated pipeline configuration,
-once to write prose — and never to produce a quantity. Between those two calls
-everything is `kpi_engine`, untouched.
+`src/kpi_agent/` is the LangGraph layer on top. It runs two flows, and **no model
+call in either produces a quantity**.
+
+*Answering a question* calls a model exactly twice — once to turn plain language
+into a validated pipeline configuration, once to write prose. Between those two
+calls everything is `kpi_engine`, untouched.
+
+*Onboarding a company* (`kpi_agent/onboard.py`) calls it twice more, once per
+tenant rather than once per question — once to bind the tenant's columns to the
+KPI catalogue, once to propose causal mechanisms between them. It writes no
+formula either: every expression is transcribed into
+`templates/reference/kpi_catalog.yaml` and checked into git, and the model only
+chooses which column holds which measure. Exact name matching runs first and
+outranks it, so `--no-llm` is a complete answer rather than a degraded one.
 
 See `README.md` for the design rationale and measured results, `baseline_plan.md`
 for the original spec, `problem_statement.md` for the hackathon acceptance
@@ -25,7 +35,7 @@ criteria.
 uv sync --extra dev --extra agent --extra cli --extra api   # setup (CPython 3.11, editable install)
 # `uv sync` is exact -- it uninstalls every extra you do not name. Naming a
 # subset later (`uv sync --extra api`) is what silently removes rich and pytest.
-uv run pytest tests/ -q                          # 216 tests
+uv run pytest tests/ -q                          # 269 tests
 uv run pytest tests/test_causal.py::test_shapley_efficiency_axiom -q   # single test
 
 # every command names a company. `acme-retail` is the demo tenant.
@@ -46,6 +56,16 @@ uv run python -m kpi_engine.cli.export_schemas                 # product-level; 
 # create a tenant (its KPIs come from the template; see "Adding things")
 uv run python -m kpi_engine.cli.init_company --company orbit-grocers \
     --display-name "Orbit Grocers" --domain other --template minimal --from-csv extract.csv
+
+# ...or derive its KPIs from its own extract, when no template fits it.
+# `blank` declares no KPIs, so it never claims metrics the file cannot produce.
+uv run python -m kpi_engine.cli.init_company --company orbit-grocers \
+    --display-name "Orbit Grocers" --domain other --template blank
+uv run python -m kpi_engine.cli.plan_kpis    --company orbit-grocers --from-csv extract.csv
+uv run python -m kpi_engine.cli.confirm_kpis --company orbit-grocers --accept-all
+uv run python -m kpi_engine.cli.plan_kpis    --company orbit-grocers --from-csv extract.csv --no-llm
+uv run python -m kpi_engine.cli.confirm_kpis --company orbit-grocers \
+    --accept-all --reject "Churn Rate" --bind "ROAS.cost_of_ads=Paid Media Outlay"
 
 # ask a question (two model calls; key read from .env)
 uv run python -m kpi_engine.cli.ask --company $C "why did margin fall in the West?" --persona ops
@@ -89,13 +109,16 @@ user/
   acme-retail/               # the demo tenant, and what the thresholds were calibrated on
     company.yaml             # CompanySpec: sources, config paths, agent defaults
     configs/{agent,causal,detection,eda,scenarios,semantics,sources}/
+    configs/{_draft,_confirmed,_superseded}/   # the KPI plan: proposed, decided, replaced
     data/{raw,generated,profiles}/
+    data/_staging/             # an upload awaiting a contract; outside every SourceSpec.path
     outputs/<run_id>/
   orbit-grocers/             # one source, a different contract
   testco/                    # pytest fixture; declares `retail_daily` like acme does
 templates/
-  company/{retail,supply-chain,minimal}/   # seed material; each is itself a CompanySpec
-  reference/{kpi_list.csv,KPI_doc.xlsx}    # what an author consults writing a contract
+  company/{retail,supply-chain,minimal,blank}/  # seed material; each is itself a CompanySpec
+  reference/kpi_list.csv                        # the KPI document, for humans
+  reference/kpi_catalog.yaml                    # the same 19 KPIs, for the binder
 schemas/                     # product-level, generated from the Pydantic models
 ```
 
@@ -158,6 +181,20 @@ See `RUNBOOK.md` for what each stage reads, writes, and what to look for.
   completes; `run_agent` is a drain of it. One execution path, two ways of
   watching it. Both take a required `company`; there is no module-level default
   config left to fall back on.
+- `kpi_plan.py` — LLM calls #3 and #4 (column binding, causal structure), each
+  with its own deterministic resolver. Same shape as `intent.py`.
+- `onboard.py` — `propose` and `commit`, the two onboarding generators. Not a
+  LangGraph: the question flow branches five ways and earns a state machine,
+  while onboarding is a straight line with one optional model call in it.
+
+Onboarding's deterministic half is in the engine, where it belongs:
+- `kpi_engine/contracts/catalogue.py` — `SeedCatalog`. `SeedVariant` builds a real
+  `KpiDef` in its own validator, so a broken formula in the catalogue fails at
+  load rather than at some tenant's first onboarding.
+- `kpi_engine/catalogue.py` — `normalise`, `match_column`, `select_variant`,
+  `bind_variant`. Exact name matching, and the only `KpiDef` constructor.
+- `kpi_engine/onboarding.py` — the plan, the merge, the synthesis of contract /
+  source spec / DAG, and `write_company_configs`, which is the only writer.
 
 `src/kpi_api/` — HTTP, and nothing else:
 - `events.py` — the projection from `AgentState` to typed events, and the only
@@ -171,7 +208,9 @@ See `RUNBOOK.md` for what each stage reads, writes, and what to look for.
 
 Routes: `GET /health`, `GET|POST /companies`, `GET /companies/{c}`,
 `POST /companies/{c}/sources/{sid}/data`, `POST /companies/{c}/ask[/sync]`,
-`GET /companies/{c}/runs/{run_id}[/report]`.
+`GET /companies/{c}/runs/{run_id}[/report]`,
+`GET|POST /companies/{c}/kpi-plan[/sync]`,
+`POST /companies/{c}/kpi-plan/confirm[/sync]`.
 
 ## The wider system
 
@@ -212,10 +251,28 @@ with no RLS. Until a `companies` table exists, the mapping lives in
 `GET /companies`, and is set at creation by `POST /companies`. The intended flow:
 
 1. On a user's first upload, `POST /companies` with their `users.id` in
-   `supabase_user_ids`.
+   `supabase_user_ids`. Use `"template": "blank"` when the extract is not known
+   to match a shipped domain contract.
 2. Forward the CSV buffer NestJS already holds — it never re-reads from storage —
    to `POST /companies/{slug}/sources/{source_id}/data`.
 3. `POST /companies/{slug}/ask`.
+
+**When the CSV does not match any template contract**, step 2 is a 422 and the
+handshake replaces it. `server/`'s `run()` is synchronous-shaped and there is no
+SSE client in `server/`, so it calls the `/sync` twins:
+
+2a. `POST /companies/{slug}/kpi-plan/sync` (multipart, the same buffer). Returns
+    a `KpiPlan`: `proposed[]` with each KPI's bound columns and `recommended`,
+    `unavailable[]` with the reason each was not offered, and `columns[]` saying
+    what became of every column. The wizard UI already in `frontend/` renders
+    this; nothing about it needs a new `AnalysisResult` field, because onboarding
+    happens *before* an analysis exists.
+2b. `POST /companies/{slug}/kpi-plan/confirm/sync` with `{plan_id, decisions[]}`.
+    Writes the tenant's configs, accepts the data, and warms the pipeline.
+
+A decision that does not validate is a 422 with nothing written; a `plan_id` that
+is not the current draft is a 409, because someone re-proposed in between and the
+decisions in hand were made against KPIs that may no longer be on offer.
 
 Uploads land in the Supabase bucket `kpi-uploads` under
 `${userId}/${Date.now()}-${filename}`, so the local mirror of that is
@@ -361,6 +418,50 @@ TypeScript interface is part of the integration, not an afterthought.
 - **The LLM never produces a number.** It chooses the configuration and writes the
   prose. Every quantity in a report comes from an `EvidenceBundle` by way of the
   fact table in `kpi_agent/facts.py`.
+- **The catalogue is the whole KPI vocabulary, and the model never writes a
+  formula.** `templates/reference/kpi_catalog.yaml` holds every expression, unit,
+  direction and threshold, transcribed by hand from `kpi_list.csv` and checked
+  into git. Onboarding's model call binds a column to an alias and nothing else.
+  This has to be structural rather than validated: `validate_expression` confirms
+  that a formula parses, and `revenue / revenue` parses perfectly well.
+- **Exact matching is the floor; the model is a disambiguator.** `bind_by_synonym`
+  runs first in both paths, its result is handed to the model as settled, and
+  `validate_bindings` keeps it when the two disagree — recording the disagreement
+  so a human can overrule it deliberately. `--no-llm` therefore binds fewer KPIs,
+  never wrong ones, and still produces a runnable contract, a valid DAG and levers
+  with named owners.
+- **A staged upload never makes a company look ready.** Onboarding writes to
+  `data/_staging/`, outside every declared `SourceSpec.path`, so `data_ready`
+  stays false and `/ask` stays a 409 for the whole draft window. At confirm the
+  ordinary `attach_source_data` runs — header gate and all — against the contract
+  just synthesised from that file, which turns the gate into a tripwire on our own
+  binder. `force=True` remains CLI-only and onboarding does not use it.
+- **A KPI node's parents are its measures, and nothing else.** Every node and every
+  `deterministic` edge is derived from the confirmed contract; only `causal` edges
+  and lever ownership are ever proposed. A proposed edge whose target is a KPI is
+  dropped, because the algebraic layer already attributes that movement exactly and
+  an estimator pointed at the same place would double-count it.
+- **Nothing is written until everything validates.** `write_company_configs` builds
+  the contract, source spec, DAG and `CompanySpec` in memory and constructs the
+  `CausalGraph` — which is what rejects a forbidden edge or a cycle — before a byte
+  is written. It then archives what it is replacing to
+  `configs/_superseded/<plan_id>/` and restores it if the reopened company does not
+  validate.
+- **Rewriting a config means rewriting `company.yaml` and calling
+  `forget_company`.** `open_company` memoises on `company.yaml`'s mtime *alone*, so
+  a new `kpis.yaml` without both is invisible: the tenant keeps answering from the
+  KPIs it had before the user changed them.
+  `test_the_company_is_reopened_after_its_configs_are_rewritten` pins it.
+- **A warm-up failure does not undo a decision.** The configuration passed
+  validation and the file passed the header gate, so the data genuinely matches
+  what the user chose. Reverting a tenant to template KPIs it never asked for
+  because the detector found nothing would be the worse error. A failed
+  `attach_source_data` *does* roll back — that one means our binder is wrong.
+- **A variant that does not survive time aggregation is never chosen
+  automatically.** `build_panel` aggregates measures to the grain and *then*
+  evaluates, so a stock-flow identity summed over a week counts the same goods
+  repeatedly. Such variants stay in the vocabulary, are shown with the reason, and
+  are opt-in only.
 - **One model, configured in one place.** `llm.DEFAULT_MODEL` (`gemini-3.5-flash-lite`)
   is the only place a model name is written; `TIMEOUT_SECONDS`, `ATTEMPTS`,
   `MAX_OUTPUT_TOKENS` and `REASONING_EFFORT` sit beside it, and `build_llm` is the
@@ -437,7 +538,18 @@ All paths below are under `user/acme-retail/`.
   `mkdir` one by hand: `company.yaml` is rendered from the `CompanySpec` that
   reads it, and a hand-made folder skips the header validation that catches a CSV
   missing a KPI's measure. A new company's KPIs are whatever its template
-  declares; choosing them per company is separate, later work.
+  declares — or, when no template fits its extract, whatever the onboarding
+  handshake derives from the file itself: seed from `blank`, then `plan_kpis`
+  and `confirm_kpis` (or `POST .../kpi-plan` and `.../kpi-plan/confirm`).
+- **A catalogue KPI** (offered to every tenant): a row in
+  `templates/reference/kpi_list.csv` for humans, and an entry in
+  `templates/reference/kpi_catalog.yaml` for the binder — measure aliases with
+  `synonyms`, a valid arithmetic `expression` over them, unit, direction,
+  category, drivers, materiality, guards. Mark a variant `aggregation_safe: false`
+  if it does not survive being summed to a grain, and give a controllable measure
+  a `controllable_hint`/`owner_hint` so the no-LLM DAG still names an owner.
+  `test_every_row_of_the_kpi_document_has_a_seed_entry` keeps the two files in
+  step.
 - **A template**: add `templates/company/<name>/` with a `company.yaml` and a
   `configs/` tree. The `company.yaml` is itself a real `CompanySpec` — not a
   string template with placeholders — so a template that stops parsing fails at

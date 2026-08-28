@@ -1,6 +1,6 @@
 # KPI semantic contract.
 #
-# Formulas transcribed from data/raw/KPI_doc.xlsx. Each KPI declares its base
+# Formulas transcribed from templates/reference/kpi_list.csv. Each KPI declares its base
 # measures separately from the arithmetic, which forces ratio-of-sums: measures
 # are aggregated to the grain first, then the expression runs on those sums.
 # Averaging per-row ratios instead would give a different and wrong answer

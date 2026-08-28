@@ -236,3 +236,80 @@ class VerificationResult(Strict):
             f"- [{v.code}] {v.where}: {v.detail}" for v in self.violations
         ]
         return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# LLM output #3: which columns hold which KPI's measures
+# --------------------------------------------------------------------------- #
+
+
+class MeasureBinding(Strict):
+    """One alias of one catalogue KPI, bound to one column of this tenant's file.
+
+    A flat list of these, rather than `dict[str, dict[str, str]]`. Nested maps
+    compile to `additionalProperties`, which is the JSON-schema construct these
+    APIs handle least reliably; a list of small objects with named string fields
+    is what survives the round trip intact.
+    """
+
+    kpi: str = Field(description="Catalogue KPI name, verbatim. Never invented.")
+    alias: str = Field(description="Measure alias, verbatim from the catalogue entry.")
+    column: str = Field(description="Column header, verbatim from the file.")
+    confidence: Literal["exact", "likely", "guess"] = Field(
+        default="likely",
+        description="How sure you are the column holds that quantity.",
+    )
+
+
+class KpiBindingProposal(Strict):
+    """Which catalogue KPIs this file can compute, and from which columns.
+
+    The model chooses column bindings and nothing else. Expressions, units,
+    directions, categories and thresholds all come from the catalogue, which is
+    checked into git -- so a wrong binding costs one KPI, and there is no way for
+    a wrong *formula* to exist at all.
+    """
+
+    date_column: str = Field(description="The column holding the observation date.")
+    entity_columns: list[str] = Field(
+        default_factory=list,
+        description="Low-cardinality dimensions worth slicing by (Region, Channel).",
+    )
+    bindings: list[MeasureBinding] = Field(default_factory=list)
+    unmatched_columns: list[str] = Field(
+        default_factory=list,
+        description="Columns you could not place. Reported to the user, not an error.",
+    )
+    reasoning: str = ""
+
+
+# --------------------------------------------------------------------------- #
+# LLM output #4: the causal mechanisms between this tenant's measures
+# --------------------------------------------------------------------------- #
+
+
+class ProposedEdge(Strict):
+    """A behavioural mechanism between two measure nodes.
+
+    Deliberately no `relation` field. Deterministic edges follow from the
+    confirmed contract's arithmetic and are derived, not proposed; everything here
+    is `causal` by construction.
+    """
+
+    source: str = Field(description="The node that moves first, verbatim from NODES.")
+    target: str = Field(description="The node it moves, verbatim from NODES.")
+    note: str = Field(default="", description="The mechanism, in one clause.")
+
+
+class ProposedLever(Strict):
+    """A node a named team can actually set."""
+
+    node: str
+    controllable: bool
+    owner: str | None = Field(default=None, description="A team, never a person.")
+
+
+class CausalProposal(Strict):
+    edges: list[ProposedEdge] = Field(default_factory=list)
+    levers: list[ProposedLever] = Field(default_factory=list)
+    reasoning: str = ""

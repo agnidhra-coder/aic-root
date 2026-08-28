@@ -1,0 +1,20 @@
+# No KPIs yet, deliberately.
+#
+# `KpiContract` permits an empty `kpis` list, and this is the one place that is
+# the right answer: a company seeded from this template has not been configured,
+# and claiming metrics its file cannot produce would be worse than claiming none.
+#
+# `POST /companies/{c}/kpi-plan/confirm` overwrites this file with a contract
+# derived from `templates/reference/kpi_catalog.yaml` and the tenant's own
+# columns. `write_yaml` uses `safe_dump`, so these comments do not survive that
+# -- the provenance lives in `configs/_confirmed/kpi_plan.json`, which records
+# where every single binding came from, and the file this replaced is archived
+# under `configs/_superseded/<plan_id>/`.
+#
+# Until then `/ask` refuses this company: `data_ready` is false because no CSV
+# has been accepted, and a staged upload deliberately does not change that.
+contract_id: blank_v1
+source_id: primary
+time_grain: day
+entity_keys: []
+kpis: []

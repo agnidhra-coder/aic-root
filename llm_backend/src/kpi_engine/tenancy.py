@@ -249,6 +249,63 @@ class CompanyPaths:
             )
         return path
 
+    # ------------------------------------------------------------------ onboarding
+
+    def staging_path(self, source_id: str) -> Path:
+        """Where an upload waits while its contract is being written.
+
+        Deliberately **outside** every declared `SourceSpec.path`, which is the
+        whole point: `missing_datasets` only looks at declared paths, so a staged
+        file leaves the company `awaiting_data` and `/ask` keeps refusing it for
+        the entire draft window. A tenant is never briefly answerable against a
+        contract that does not match its data.
+
+        `source_id` is caller-supplied, so it gets the same traversal guard
+        `artefact` has.
+        """
+        root = (self.data_dir / "_staging").resolve()
+        path = (root / f"{source_id}.csv").resolve()
+        if not path.is_relative_to(root):
+            raise InvalidRunId(
+                f"Source id {source_id!r} resolves outside {self.slug}'s staging directory."
+            )
+        return path
+
+    def draft_plan_path(self) -> Path:
+        """The proposed KPI plan. Overwritten by each new proposal."""
+        return self.configs_dir / "_draft" / "kpi_plan.json"
+
+    def confirmed_plan_path(self) -> Path:
+        """The decision and its provenance. `write_yaml` drops comments; this does not."""
+        return self.configs_dir / "_confirmed" / "kpi_plan.json"
+
+    def superseded_dir(self, plan_id: str) -> Path:
+        """Where the configs a plan replaced are archived."""
+        root = (self.configs_dir / "_superseded").resolve()
+        path = (root / plan_id).resolve()
+        if not path.is_relative_to(root):
+            raise InvalidRunId(
+                f"Plan id {plan_id!r} resolves outside {self.slug}'s archive directory."
+            )
+        return path
+
+    def kpi_plan_state(self) -> str:
+        """`none` | `drafted` | `confirmed`. Derived from disk, never stored."""
+        if self.confirmed_plan_path().exists():
+            return "confirmed"
+        if self.draft_plan_path().exists():
+            return "drafted"
+        return "none"
+
+    def staged_sources(self) -> dict[str, Path]:
+        """Declared sources with an upload waiting for a contract, `source_id` -> path."""
+        staged: dict[str, Path] = {}
+        for binding in self.spec.sources:
+            path = self.staging_path(binding.source_id)
+            if path.exists():
+                staged[binding.source_id] = path
+        return staged
+
     def runs(self) -> list[Path]:
         """Run directories, oldest first.
 

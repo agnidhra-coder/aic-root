@@ -76,6 +76,36 @@ def test_a_run_id_cannot_climb_out_of_its_company():
         paths.artefact("../../../etc", "passwd")
 
 
+def test_an_onboarding_path_cannot_climb_out_of_its_company():
+    """`source_id` and `plan_id` are caller-supplied and both become directory
+    names, so they get the same guard `run_id` has rather than being trusted
+    because they arrived from a different route."""
+    paths = open_company(FIXTURE)
+    with pytest.raises(InvalidRunId):
+        paths.staging_path("../acme-retail/data/raw/dummy_data")
+    with pytest.raises(InvalidRunId):
+        paths.superseded_dir("../../../tmp")
+
+
+def test_a_staged_upload_is_outside_every_declared_source_path():
+    """The invariant that keeps a company `awaiting_data` while a plan is in
+    flight. If staging ever landed on a declared path, `/ask` would start
+    answering against a contract written for a different file."""
+    paths = open_company(FIXTURE)
+    declared = {
+        str(paths.source_spec(b.source_id).path) for b in paths.spec.sources
+    }
+    for binding in paths.spec.sources:
+        assert str(paths.staging_path(binding.source_id)) not in declared
+
+
+def test_a_company_reports_whether_it_has_a_drafted_or_confirmed_kpi_plan():
+    """Derived from disk each time. A stored field would drift, and the first
+    thing it would mislead is whether an answer can be trusted."""
+    paths = open_company(FIXTURE)
+    assert paths.kpi_plan_state() in {"none", "drafted", "confirmed"}
+
+
 # --------------------------------------------------------------------------- #
 # The registry
 # --------------------------------------------------------------------------- #

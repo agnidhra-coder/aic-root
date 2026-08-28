@@ -9,9 +9,13 @@ anywhere in it**, and none ever should be — the evidence bundle is the numeric
 ground everything else stands on.
 
 `kpi_agent` is a LangGraph layer that takes a question in plain language, runs the
-engine, and answers. It calls a model exactly twice: once to turn the question
-into a *validated* configuration, once to write the prose. It never calls one to
-produce a quantity.
+engine, and answers. It calls a model exactly twice per question: once to turn the
+question into a *validated* configuration, once to write the prose. It calls one
+twice more per *tenant*, when a company's KPIs have to be worked out from its own
+extract rather than copied from a template — once to bind columns to a fixed KPI
+catalogue, once to propose the causal mechanisms between them.
+
+It never calls a model to produce a quantity, and never to write a formula.
 
 ## Quick start
 
@@ -28,6 +32,21 @@ uv run python -m kpi_engine.cli.ask --company acme-retail "why did ROAS drop?" -
 # The same thing with no API key: broad sweep, template-rendered report.
 uv run python -m kpi_engine.cli.ask --company acme-retail "what needs attention?" --persona exec --no-llm
 ```
+
+Onboarding a company whose extract matches none of the shipped contracts — the
+agent reads the file's columns, works out which of the documented KPIs it can
+actually support, and you approve or edit the mapping before anything is written:
+
+```bash
+uv run python -m kpi_engine.cli.init_company --company orbit --display-name "Orbit" \
+    --domain other --template blank            # `blank` declares no KPIs
+uv run python -m kpi_engine.cli.plan_kpis    --company orbit --from-csv extract.csv
+uv run python -m kpi_engine.cli.confirm_kpis --company orbit --accept-all
+uv run python -m kpi_engine.cli.ask          --company orbit "what needs attention?"
+```
+
+`plan_kpis --no-llm` works with no API key and still binds most of a well-named
+extract; see **Where the LLM attaches**.
 
 The `cli` extra adds `rich`, which is what separates the two halves on screen: the
 plan and the prose sit in panels labelled as the model's, everything else is
@@ -141,6 +160,37 @@ driver set entirely.
 
 ## Design decisions that matter
 
+**The KPI catalogue is data, not prompt.** Onboarding could have handed the model
+the KPI document and asked for `measures` and an `expression` back. It does not,
+because the guard against a bad formula is weaker than it looks:
+`semantics/expressions.py` rejects anything that is not arithmetic over declared
+aliases, but `revenue / revenue` is arithmetic over declared aliases, and it is
+always 1.0. A model-authored formula is untrusted input that only *syntax* can be
+checked on.
+
+So the 19 documented KPIs are transcribed once, by hand, into
+`templates/reference/kpi_catalog.yaml` — aliases, a valid expression over them,
+unit, direction, materiality, guards — and the model's entire job becomes *which
+column holds this alias*, a question a name-matcher cannot always answer and a
+wrong answer to which costs one KPI rather than every number in a report.
+
+Three things fell out of that shape:
+
+- **`variants`.** The document says `Store Entrances OR Website Sessions`, which
+  is a choice of column rather than arithmetic. An ordered list of variants makes
+  the choice deterministic — both channels if the file separates them, otherwise
+  whichever it has — and lets `COGS` prefer a directly supplied column over the
+  stock-flow identity that reconstructs it.
+- **`aggregation_safe`.** `Beg. Inventory + Purchases − End. Inventory` is correct
+  daily and nonsense weekly: the panel aggregates measures to the grain *before*
+  evaluating, so opening and closing stock get summed and count the same goods
+  repeatedly. Such variants stay in the vocabulary, are shown with the reason, and
+  are never auto-selected.
+- **`synonyms`.** Exact matching under `normalise` binds 12 of 19 KPIs on the demo
+  extract with no model at all. That is what makes `--no-llm` an answer rather
+  than a stub, and it runs *first*, so the model extends a partial result instead
+  of starting from nothing and cannot overturn a match that was already certain.
+
 **Ratio-of-sums, never mean-of-ratios.** A KPI contract declares its base
 measures separately from its arithmetic. Measures are aggregated to the grain
 first, then the formula runs on those sums. Averaging per-row ratios gives a
@@ -236,6 +286,8 @@ src/kpi_agent/     LangGraph layer -- the only place a model is called
   llm.py           model configuration, build_llm, usage/cost accounting
   verify.py        mechanical grounding check; no model involved
   graph.py         the state machine; stream_agent + run_agent, one execution path
+  kpi_plan.py      LLM #3 + #4 (column binding, causal structure) + their validators
+  onboard.py       propose / commit -- onboarding's two stage generators
 src/kpi_api/       HTTP transport, computing nothing of its own
   events.py        AgentState -> typed events, one per stage as it lands
   logbus.py        the stage log forwarded per run
@@ -249,12 +301,16 @@ src/kpi_engine/
   causal/      dag, algebraic, did, its, dml, router
   scenarios/   ground-truth event injection
   evidence/    confidence, abstention, bundle, telemetry
-  cli/         one executable per stage, plus `ask` for the agent
+  cli/         one executable per stage, plus `ask`, `plan_kpis`, `confirm_kpis`
   pipeline.py  the whole chain in one process, returning objects not files
   tenancy.py   CompanyPaths — the one seam between a config string and a path
   provisioning.py  create a company, give it data
+  catalogue.py     exact column matching; the only KpiDef constructor
+  onboarding.py    plan -> merge -> synthesise contract/source/DAG -> write, or roll back
 user/          one folder per tenant: configs, data, outputs. `metadata.yaml` indexes them
-templates/     company seed material, and the KPI reference catalogue
+templates/     company seed material (retail, supply-chain, minimal, blank)
+  reference/kpi_list.csv      the KPI document, for humans
+  reference/kpi_catalog.yaml  the same 19 KPIs with real arithmetic, for the binder
 schemas/       exported JSON Schema — the LLM-facing contract surface
 ```
 
@@ -273,7 +329,41 @@ register_source("postgres", PostgresSource)
 
 ## Where the LLM attaches
 
-At two points, both at the edges.
+At four points, all at the edges, and none of them produces a number.
+
+Two run **once per question** — planning the analysis and writing the prose. Two
+run **once per tenant**, when a company is onboarded and its KPIs have to be
+worked out from its own extract rather than copied from a template:
+
+```
+extract ──► profile ──► [bind columns] ──► validate ──► plan ──► human decides
+  LLM #3 (once per tenant)     │                                      │
+                               │                          ┌───────────┘
+                               ▼                          ▼
+                    exact name matching first    [causal edges] ──► validate ──► configs
+                    (outranks the model)             LLM #4              deterministic
+```
+
+**The model binds columns; it never writes a formula.** Every expression, unit,
+direction and threshold lives in `templates/reference/kpi_catalog.yaml`,
+transcribed by hand from the KPI document and checked into git. This has to be
+structural rather than validated: the restricted AST evaluator confirms that a
+formula *parses*, and `revenue / revenue` parses perfectly well.
+
+**Exact name matching runs first and wins ties.** A synonym that equals a column
+under `normalise` is settled; the model is shown that result and asked only to
+place what is left, and where the two disagree the match stands with the
+disagreement recorded. So `--no-llm` binds fewer KPIs, never wrong ones, and still
+produces a runnable contract, a valid DAG and levers with named owners. On the
+demo extract it binds 12 of 19 with no API key at all.
+
+Measured on an extract with every column deliberately renamed — `Total Revenue` →
+`Gross Turnover`, `COGS` → `Merchandise Cost`, `Cost Of Ads` → `Paid Media Outlay`
+— name matching binds 0 and the model binds 8, correctly, then names
+`Paid Media Outlay → Growth Marketing` as a lever. That gap is the entire case for
+the model being there.
+
+The rest of this section is the per-question pair.
 
 ```
 question ──► [plan] ──► validate ──┬─► clarify (stop, ask)
@@ -358,7 +448,7 @@ says so.
 ## Tests
 
 ```bash
-uv run pytest tests/ -q      # 168 tests, no API key required
+uv run pytest tests/ -q      # 269 tests, no API key required
 ```
 
 They pin the properties that matter rather than golden outputs: the evaluator

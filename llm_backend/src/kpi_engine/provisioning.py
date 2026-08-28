@@ -246,6 +246,73 @@ def required_columns(paths: CompanyPaths, source_id: str) -> list[str]:
     return sorted(needed)
 
 
+def stage_source_data(
+    paths: CompanyPaths,
+    source_id: str,
+    *,
+    csv_path: str | Path | None = None,
+    content: bytes | None = None,
+) -> tuple[Path, list[str], int]:
+    """Park a CSV where a KPI plan can be built from it, without accepting it.
+
+    The onboarding problem is an ordering problem: `attach_source_data` checks a
+    file against the contract, but the whole point of onboarding is that the
+    contract does not exist yet and is about to be written *from* the file. The
+    tempting fix -- exposing `force=True` over HTTP -- deletes the guarantee that
+    a company's data always matches its contract, and opens a window where
+    `data_ready` is true and `/ask` answers against a contract naming columns the
+    file does not carry.
+
+    So the file goes somewhere no `SourceSpec` points at. `missing_datasets` sees
+    nothing new, the company stays `awaiting_data`, and `/ask` keeps returning 409
+    for the whole draft window. At confirm time the ordinary
+    `attach_source_data` -- header gate and all -- moves it into place, and that
+    gate now checks the file against the contract *we just synthesised from it*.
+    A mismatch there means our own binder is wrong, which is exactly when we want
+    to hear about it loudly.
+
+    Returns the staged path, any warnings, and the row count.
+    """
+    if (csv_path is None) == (content is None):
+        raise ValueError("Pass exactly one of `csv_path` or `content`.")
+
+    paths.spec.binding(source_id)  # raises KeyError if the source is not declared
+    target = paths.staging_path(source_id)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(target.parent), prefix=f".{target.name}.", suffix=".tmp"
+    )
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(content if content is not None else Path(csv_path).read_bytes())
+
+        # The only check here is that it is a readable CSV with a header and at
+        # least one row. Anything about *columns* is the plan's business, not
+        # this function's -- refusing a file for its columns is precisely what
+        # onboarding exists to avoid.
+        try:
+            frame = pd.read_csv(tmp)
+        except Exception as exc:  # noqa: BLE001 -- any parse failure is one answer
+            raise DataRejected(f"The upload is not readable as CSV: {exc}", []) from exc
+        if frame.empty:
+            raise DataRejected("The upload has a header row but no data rows.", [])
+
+        warnings: list[str] = []
+        blank = [c for c in frame.columns if str(c).startswith("Unnamed:")]
+        if blank:
+            warnings.append(f"{len(blank)} column(s) have no header and cannot be used: {blank}")
+
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, target)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+    return target, warnings, len(frame)
+
+
 def attach_source_data(
     paths: CompanyPaths,
     source_id: str,
@@ -263,6 +330,11 @@ def attach_source_data(
     `force` skips the column check. It exists for the case where a contract is
     about to be rewritten to match a file rather than the other way round; it is a
     CLI affordance and is not exposed over HTTP.
+
+    Onboarding does **not** use it. That flow stages the file with
+    `stage_source_data` and calls this function normally once the contract has
+    been synthesised, so the header gate below runs against the new contract and
+    catches a binder that produced one the file cannot satisfy.
     """
     if (csv_path is None) == (content is None):
         raise ValueError("Pass exactly one of `csv_path` or `content`.")

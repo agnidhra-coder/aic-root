@@ -208,6 +208,210 @@ def test_asking_a_company_with_no_data_is_refused_not_answered(client):
 
 
 # --------------------------------------------------------------------------- #
+# Onboarding: deriving a contract from the file instead of the template
+# --------------------------------------------------------------------------- #
+
+# Deliberately narrower than any template's contract, and named so exact matching
+# finds most of it. The retail contract needs `Avg Inventory Value`, `New
+# Customers` and six more that are not here, so `POST .../sources/.../data` would
+# refuse this file outright -- which is the whole reason onboarding exists.
+ONBOARDING_CSV = (
+    "Date,Region,Total Revenue,COGS,Total Expenses,Number of Sales,Total Visitors\n"
+    + "\n".join(
+        f"2026-{(i % 12) + 1:02d}-{(i % 28) + 1:02d},"
+        f"{'West' if i % 2 else 'East'},{1000 + i},{400 + i},{700 + i},{50 + i},{900 + i}"
+        for i in range(400)
+    )
+).encode()
+
+
+def _plan(client, company="demo-co", payload=ONBOARDING_CSV, **params):
+    return client.post(
+        f"/companies/{company}/kpi-plan/sync",
+        files={"file": ("upload.csv", payload, "text/csv")},
+        params={"no_llm": True, **params},
+    )
+
+
+def _blank(client, **kw):
+    body = {"company_id": "demo-co", "display_name": "Demo Co",
+            "domains": ["other"], "template": "blank"}
+    body.update(kw)
+    return client.post("/companies", json=body)
+
+
+def test_a_blank_company_declares_no_kpis_until_a_plan_is_confirmed(client):
+    """Seeding an unknown extract from `retail` would have it claim five KPIs it
+    almost certainly cannot compute. An empty contract is the honest state."""
+    assert _blank(client).status_code == 201
+    paths = open_company("demo-co")
+    assert paths.contract("primary").kpis == []
+    assert paths.kpi_plan_state() == "none"
+
+
+def test_a_csv_the_template_contract_could_never_accept_is_still_plannable(client):
+    """The ordering problem onboarding exists to solve: the contract does not
+    exist yet and is about to be written from this very file."""
+    _create(client)  # the retail template, whose contract needs eight more columns
+    assert _attach(client, ONBOARDING_CSV).status_code == 422
+    body = _plan(client).json()
+    assert body["done"]["outcome"] == "drafted"
+    assert "Gross Profit Margin" in body["drafted"]["proposed"]
+
+
+def test_a_staged_upload_does_not_make_the_company_look_ready(client):
+    """`data/_staging/` is outside every declared source path, so a company with a
+    plan in flight keeps reporting `awaiting_data` -- it is not briefly answerable
+    against a contract that does not match its file."""
+    _blank(client)
+    _plan(client)
+    assert client.get("/companies/demo-co").json()["status"] == "awaiting_data"
+    assert open_company("demo-co").staged_sources()
+
+
+def test_asking_a_company_with_only_a_staged_upload_is_still_refused(client):
+    _blank(client)
+    _plan(client)
+    response = client.post(
+        "/companies/demo-co/ask", json={"question": "what happened?", "no_llm": True}
+    )
+    assert response.status_code == 409
+
+
+def test_confirming_a_plan_rewrites_the_contract_to_match_the_file(client):
+    _blank(client)
+    plan_id = _plan(client).json()["drafted"]["plan_id"]
+    body = client.post(
+        "/companies/demo-co/kpi-plan/confirm/sync",
+        json={"plan_id": plan_id, "no_llm": True, "warm_up": False},
+    ).json()
+
+    header = set(ONBOARDING_CSV.split(b"\n")[0].decode().split(","))
+    contract = open_company("demo-co").contract("primary")
+    assert contract.kpis
+    for kpi in contract.kpis:
+        for measure in kpi.measures.values():
+            assert measure.column in header
+    assert body["data"]["ready"] is True
+
+
+def test_the_company_is_reopened_after_its_configs_are_rewritten(client):
+    """`open_company` memoises on `company.yaml`'s mtime alone, so rewriting a
+    semantics file without invalidating that cache would keep serving the KPIs the
+    tenant had before the user changed them. No manual `forget_company` here --
+    that is the point."""
+    _blank(client)
+    assert open_company("demo-co").contract("primary").kpis == []
+    plan_id = _plan(client).json()["drafted"]["plan_id"]
+    client.post(
+        "/companies/demo-co/kpi-plan/confirm/sync",
+        json={"plan_id": plan_id, "no_llm": True, "warm_up": False},
+    )
+    assert open_company("demo-co").contract("primary").kpis
+
+
+def test_a_confirmed_plan_archives_the_configs_it_replaced(client):
+    """`write_yaml` uses `safe_dump`, so the generated files carry no comments and
+    cannot say what they replaced. The archive and the confirmed plan can."""
+    _blank(client)
+    plan_id = _plan(client).json()["drafted"]["plan_id"]
+    client.post(
+        "/companies/demo-co/kpi-plan/confirm/sync",
+        json={"plan_id": plan_id, "no_llm": True, "warm_up": False},
+    )
+    paths = open_company("demo-co")
+    archived = {p.name for p in paths.superseded_dir(plan_id).iterdir()}
+    assert {"company-company.yaml", "contract-kpis.yaml"} <= archived
+    assert paths.kpi_plan_state() == "confirmed"
+
+
+def test_a_confirmed_plan_records_where_every_binding_came_from(client):
+    _blank(client)
+    plan_id = _plan(client).json()["drafted"]["plan_id"]
+    client.post(
+        "/companies/demo-co/kpi-plan/confirm/sync",
+        json={"plan_id": plan_id, "no_llm": True, "warm_up": False},
+    )
+    import json as _json
+
+    confirmed = _json.loads(open_company("demo-co").confirmed_plan_path().read_text())
+    sources = {
+        m["bound_by"]
+        for kpi in confirmed["draft"]["proposed"]
+        for m in kpi["measures"]
+    }
+    assert sources == {"synonym"}
+    assert confirmed["accepted"]
+
+
+def test_a_plan_confirmed_with_every_kpi_rejected_is_refused_rather_than_written(client):
+    """A company with an empty contract answers every question with silence."""
+    _blank(client)
+    drafted = _plan(client).json()["drafted"]
+    response = client.post(
+        "/companies/demo-co/kpi-plan/confirm/sync",
+        json={
+            "plan_id": drafted["plan_id"],
+            "no_llm": True,
+            "decisions": [{"name": n, "verdict": "reject"} for n in drafted["proposed"]],
+        },
+    )
+    assert response.status_code == 422
+    assert "nothing to compute" in response.json()["detail"]
+    assert open_company("demo-co").contract("primary").kpis == []
+
+
+def test_a_stale_plan_id_is_refused_rather_than_merged_onto_the_current_draft(client):
+    _blank(client)
+    _plan(client)
+    response = client.post(
+        "/companies/demo-co/kpi-plan/confirm/sync",
+        json={"plan_id": "kpiplan-19700101-000000", "no_llm": True},
+    )
+    assert response.status_code == 409
+    assert "not the current draft" in response.json()["detail"]
+
+
+def test_confirming_with_no_draft_at_all_is_a_404(client):
+    _blank(client)
+    response = client.post(
+        "/companies/demo-co/kpi-plan/confirm/sync",
+        json={"plan_id": "kpiplan-19700101-000000", "no_llm": True},
+    )
+    assert response.status_code == 404
+
+
+def test_the_draft_can_be_read_back_by_a_caller_that_did_not_create_it(client):
+    _blank(client)
+    plan_id = _plan(client).json()["drafted"]["plan_id"]
+    assert client.get("/companies/demo-co/kpi-plan").json()["plan_id"] == plan_id
+
+
+def test_a_company_with_no_draft_reports_404_rather_than_an_empty_plan(client):
+    _blank(client)
+    assert client.get("/companies/demo-co/kpi-plan").status_code == 404
+
+
+def test_every_template_dag_names_only_its_own_contracts_kpis():
+    """A graph naming another domain's metrics licenses no explanation of this
+    one's, and every KPI node must exist for `verify.py` to check a narrative
+    against the right causal structure."""
+    from kpi_engine.config_io import load_contract, load_graph
+    from kpi_engine.provisioning import list_templates, templates_dir
+
+    for name in list_templates():
+        root = templates_dir() / name
+        graph = load_graph(root / "configs" / "causal" / "dag.yaml")
+        contract = load_contract(root / "configs" / "semantics" / "kpis.yaml")
+        kpi_nodes = {n.name for n in graph.nodes if n.kind == "kpi"}
+        assert kpi_nodes == {k.name for k in contract.kpis}, (
+            f"template {name!r}: graph {graph.graph_id!r} declares KPI nodes "
+            f"{sorted(kpi_nodes)} but its contract declares "
+            f"{sorted(k.name for k in contract.kpis)}"
+        )
+
+
+# --------------------------------------------------------------------------- #
 # The registry under concurrency
 # --------------------------------------------------------------------------- #
 

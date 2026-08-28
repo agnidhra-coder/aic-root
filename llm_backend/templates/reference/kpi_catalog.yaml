@@ -1,0 +1,620 @@
+# The KPI vocabulary, in a form the engine can act on.
+#
+# One entry per row of `kpi_list.csv`, which stays the human document. The
+# document's `Formula` column is prose over display names and cannot be handed to
+# the restricted AST evaluator, so the arithmetic is transcribed here by hand and
+# checked into git. `doc_formula` carries the original verbatim so a reviewer can
+# check the transcription without opening the CSV.
+#
+# This file is the whole vocabulary. A model binding columns for a new tenant may
+# choose from these KPIs and no others, and may not author an expression -- which
+# is a structural guarantee rather than a validation rule, because
+# `validate_expression` would happily accept `revenue / revenue`.
+#
+# `variants` are tried in order; the first whose every alias binds to a real
+# column wins. `aggregation_safe: false` marks arithmetic that does not survive
+# being summed to a grain -- `build_panel` aggregates measures first and evaluates
+# second, so a stock-flow identity summed over a week is nonsense. Those variants
+# are offered and explained, never chosen automatically.
+#
+# `synonyms` are matched EXACTLY under `catalogue.normalise` (lowercase, strip
+# non-alphanumerics). No edit distance, no embeddings. An exact match needs no
+# model, which is what makes the --no-llm path a real answer.
+catalog_id: reference_v1
+source_doc: templates/reference/kpi_list.csv
+
+kpis:
+
+  # ----------------------------------------------------------------- Sales & Revenue
+
+  - name: Sales per Square Foot
+    category: Sales & Revenue
+    unit: currency
+    direction: higher_is_better
+    description: Physical space revenue efficiency.
+    doc_formula: Net Sales / Square Footage
+    drivers: [Store layout, Product placement, Passing traffic]
+    primary_metric: Revenue
+    materiality: {min_abs_pct: 5.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      # Ratio-of-sums is correct here when the panel is one row per store:
+      # sum(sales) / sum(footage) is a floor-weighted average, which is the
+      # quantity the document means. `square_footage` is an attribute, not a flow,
+      # but summing it across stores in a slice is exactly right.
+      - variant_id: standard
+        expression: net_sales / square_footage
+        measures:
+          - alias: net_sales
+            synonyms: [Net Sales, Total Revenue, Retail Sales, Revenue]
+            description: Revenue recognised in the period.
+          - alias: square_footage
+            kind: attribute
+            synonyms: [Square Footage, Sq Ft, Selling Area, Floor Area]
+            description: Sellable floor area.
+
+  - name: Average Transaction Value (ATV)
+    category: Sales & Revenue
+    unit: currency
+    direction: higher_is_better
+    description: Average spend per purchase event.
+    doc_formula: Total Revenue / Total Transactions
+    drivers: [Cross-selling, Upselling, Promotional bundling]
+    primary_metric: Revenue
+    materiality: {min_abs_pct: 4.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: standard
+        expression: total_revenue / total_transactions
+        measures:
+          - alias: total_revenue
+            synonyms: [Total Revenue, Net Sales, Retail Sales, Revenue]
+            description: Revenue recognised in the period.
+          - alias: total_transactions
+            synonyms: [Total Transactions, Number of Sales, Transactions, Orders]
+            description: Completed purchase events.
+
+  - name: Units Per Transaction (UPT)
+    category: Sales & Revenue
+    unit: ratio
+    direction: higher_is_better
+    description: Average items bought per visit.
+    doc_formula: Total Units Sold / Total Transactions
+    drivers: [Product affinity, POS impulse buys]
+    primary_metric: Revenue
+    materiality: {min_abs_pct: 4.0, min_business_impact: 0.05}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: standard
+        expression: units_sold / total_transactions
+        measures:
+          - alias: units_sold
+            synonyms: [Total Units Sold, Units Sold, Quantity Sold, Units]
+            description: Items sold in the period.
+          - alias: total_transactions
+            synonyms: [Total Transactions, Number of Sales, Transactions, Orders]
+            description: Completed purchase events.
+
+  - name: Conversion Rate
+    category: Sales & Revenue
+    unit: percent
+    direction: higher_is_better
+    description: Percentage of browsers who buy.
+    doc_formula: (Number of Sales / Total Visitors) * 100
+    drivers: [Window displays, UX, Staff helpfulness, Product availability]
+    primary_metric: Revenue
+    materiality: {min_abs_pct: 4.0, min_business_impact: 0.15}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: standard
+        expression: number_of_sales / total_visitors * 100
+        measures:
+          - alias: number_of_sales
+            synonyms: [Number of Sales, Total Transactions, Transactions, Orders]
+            description: Completed purchases.
+          - alias: total_visitors
+            synonyms: [Total Visitors, Visitors, Sessions, Website Sessions, Store Entrances]
+            description: Sessions and store entrances. Context, not a lever.
+
+  - name: Foot & Digital Traffic
+    category: Sales & Revenue
+    unit: count
+    direction: higher_is_better
+    description: Total sales opportunities and brand awareness.
+    doc_formula: Store Entrances OR Website Sessions
+    drivers: [Location, Ad campaigns, SEO, Weather]
+    primary_metric: Revenue
+    materiality: {min_abs_pct: 6.0, min_business_impact: 0.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      # The document's `OR` is a choice of column, not arithmetic. Ordered
+      # fallback makes that choice deterministic instead of a judgement call:
+      # both channels if the file separates them, otherwise whichever it carries.
+      - variant_id: both_channels
+        expression: store_entrances + website_sessions
+        measures:
+          - alias: store_entrances
+            synonyms: [Store Entrances, Footfall, Foot Traffic]
+            description: Physical visits.
+          - alias: website_sessions
+            synonyms: [Website Sessions, Sessions, Web Sessions, Online Visits]
+            description: Digital visits.
+      - variant_id: combined
+        expression: total_visitors
+        measures:
+          - alias: total_visitors
+            synonyms: [Total Visitors, Visitors, Traffic]
+            description: Visits across all channels, already combined.
+      - variant_id: digital_only
+        expression: website_sessions
+        measures:
+          - alias: website_sessions
+            synonyms: [Website Sessions, Sessions, Web Sessions, Online Visits]
+            description: Digital visits.
+      - variant_id: physical_only
+        expression: store_entrances
+        measures:
+          - alias: store_entrances
+            synonyms: [Store Entrances, Footfall, Foot Traffic]
+            description: Physical visits.
+
+  # ----------------------------------------------------------------- Inventory & Supply
+
+  - name: Sell-Through Rate
+    category: Inventory & Supply
+    unit: percent
+    direction: higher_is_better
+    description: Specific product or category performance.
+    doc_formula: (Units Sold / Beginning Inventory) * 100
+    drivers: [Trend forecasting, Promotional pricing]
+    primary_metric: Revenue
+    materiality: {min_abs_pct: 6.0, min_business_impact: 0.5}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      # Beginning inventory is a stock: summing it across the days of a week
+      # counts the same goods repeatedly, so the weekly ratio is not the weekly
+      # sell-through. Offered, explained, never automatic.
+      - variant_id: standard
+        expression: units_sold / beginning_inventory * 100
+        aggregation_safe: false
+        note: >
+          Beginning inventory is a level, not a flow. Summed to a coarser grain it
+          double-counts the same goods, so this is meaningful only at the grain the
+          inventory was measured on.
+        measures:
+          - alias: units_sold
+            synonyms: [Units Sold, Total Units Sold, Quantity Sold]
+            description: Items sold in the period.
+          - alias: beginning_inventory
+            kind: stock
+            synonyms: [Beginning Inventory, Opening Inventory, Start Inventory, On Hand Units]
+            description: Units on hand at the start of the period.
+
+  - name: GMROI
+    category: Inventory & Supply
+    unit: ratio
+    direction: higher_is_better
+    description: Profit per dollar invested in stock.
+    doc_formula: Total Gross Profit / Average Inventory Cost
+    drivers: [Vendor pricing, Markdown strategies, Product demand]
+    primary_metric: Profit
+    materiality: {min_abs_pct: 5.0, min_business_impact: 0.05}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: direct
+        expression: gross_profit / avg_inventory_cost
+        measures:
+          - alias: gross_profit
+            synonyms: [Total Gross Profit, Gross Profit]
+            description: Revenue less cost of goods sold.
+          - alias: avg_inventory_cost
+            kind: stock
+            synonyms: [Average Inventory Cost, Avg Inventory Cost, Avg Inventory Value]
+            controllable_hint: true
+            owner_hint: Merchandising
+            description: Cost value of stock held.
+      - variant_id: from_revenue_and_cogs
+        expression: (total_revenue - cogs) / avg_inventory_cost
+        measures:
+          - alias: total_revenue
+            synonyms: [Total Revenue, Net Sales, Retail Sales, Revenue]
+            description: Revenue recognised in the period.
+          - alias: cogs
+            synonyms: [COGS, Cost Of Goods Sold]
+            controllable_hint: true
+            owner_hint: Supply Chain
+            description: Direct cost of the goods sold.
+          - alias: avg_inventory_cost
+            kind: stock
+            synonyms: [Average Inventory Cost, Avg Inventory Cost, Avg Inventory Value]
+            controllable_hint: true
+            owner_hint: Merchandising
+            description: Cost value of stock held.
+
+  - name: Shrinkage Rate
+    category: Inventory & Supply
+    unit: percent
+    direction: lower_is_better
+    description: Loss from theft, fraud, or errors.
+    doc_formula: ((Recorded Value - Actual Value) / Retail Sales) * 100
+    drivers: [Store security, Warehouse handling, Employee training]
+    primary_metric: Costs
+    materiality: {min_abs_pct: 10.0, min_business_impact: 0.1}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: from_shrinkage_value
+        expression: shrinkage_value / retail_sales * 100
+        measures:
+          - alias: shrinkage_value
+            synonyms: [Shrinkage Value, Shrinkage, Inventory Loss, Stock Loss]
+            description: Value of stock unaccounted for.
+          - alias: retail_sales
+            synonyms: [Retail Sales, Net Sales, Total Revenue, Revenue]
+            description: Revenue recognised in the period.
+      - variant_id: from_book_and_counted
+        # Book and counted values are levels read at a stocktake, not flows.
+        expression: (recorded_value - actual_value) / retail_sales * 100
+        aggregation_safe: false
+        note: >
+          Recorded and actual value are stocktake levels. Summing them across the
+          days of a period counts the same stock repeatedly.
+        measures:
+          - alias: recorded_value
+            kind: stock
+            synonyms: [Recorded Value, Book Value, Book Inventory Value]
+            description: What the books say is on hand.
+          - alias: actual_value
+            kind: stock
+            synonyms: [Actual Value, Counted Value, Physical Inventory Value]
+            description: What was actually counted.
+          - alias: retail_sales
+            synonyms: [Retail Sales, Net Sales, Total Revenue, Revenue]
+            description: Revenue recognised in the period.
+
+  # ----------------------------------------------------------------- Cost & Expenses
+
+  - name: Cost of Goods Sold (COGS)
+    category: Cost & Expenses
+    unit: currency
+    direction: lower_is_better
+    description: Direct costs of producing or buying goods sold.
+    doc_formula: Beg. Inventory + Purchases - End. Inventory
+    drivers: [Supplier pricing, Raw materials, Manufacturing efficiency]
+    primary_metric: Costs
+    materiality: {min_abs_pct: 5.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      # Almost every extract carries COGS directly. The stock-flow identity is the
+      # fallback, and it is exactly the case `aggregation_safe: false` exists for:
+      # summed over a week, opening and closing inventory double-count.
+      - variant_id: direct
+        expression: cogs
+        measures:
+          - alias: cogs
+            synonyms: [COGS, Cost Of Goods Sold, Cost of Sales]
+            controllable_hint: true
+            owner_hint: Supply Chain
+            description: Direct cost of the goods sold.
+      - variant_id: stock_flow
+        expression: beginning_inventory + purchases - ending_inventory
+        aggregation_safe: false
+        note: >
+          A stock-flow identity. Beginning and ending inventory are levels; summing
+          them to a coarser grain counts the same goods repeatedly, so this holds
+          only at the grain the inventory was counted on.
+        measures:
+          - alias: beginning_inventory
+            kind: stock
+            synonyms: [Beginning Inventory, Opening Inventory, Start Inventory]
+            description: Stock value at the start of the period.
+          - alias: purchases
+            synonyms: [Purchases, Inventory Purchases, Goods Received Value]
+            controllable_hint: true
+            owner_hint: Procurement
+            description: Stock bought during the period.
+          - alias: ending_inventory
+            kind: stock
+            synonyms: [Ending Inventory, Closing Inventory, End Inventory]
+            description: Stock value at the end of the period.
+
+  - name: Inventory Holding Cost
+    category: Cost & Expenses
+    unit: currency
+    direction: lower_is_better
+    description: Cost of storing unsold stock.
+    doc_formula: Average Inventory Value * Holding Cost %
+    drivers: [Warehousing fees, Insurance, Depreciation]
+    primary_metric: Costs
+    materiality: {min_abs_pct: 6.0, min_business_impact: 0.5}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: direct
+        expression: holding_cost
+        measures:
+          - alias: holding_cost
+            synonyms: [Inventory Holding Cost, Holding Cost, Carrying Cost, Storage Cost]
+            controllable_hint: true
+            owner_hint: Merchandising
+            description: Cost of carrying stock in the period.
+      - variant_id: from_rate
+        # Both columns must be present. The holding-cost rate is not a constant we
+        # may supply -- inventing one would be the model producing a number.
+        expression: avg_inventory_value * holding_cost_rate
+        aggregation_safe: false
+        note: >
+          Average inventory value is a level and the rate is already a rate;
+          neither sums to a coarser grain.
+        measures:
+          - alias: avg_inventory_value
+            kind: stock
+            synonyms: [Average Inventory Value, Avg Inventory Value, Avg Inventory Cost]
+            description: Value of stock held.
+          - alias: holding_cost_rate
+            kind: rate
+            synonyms: [Holding Cost Rate, Holding Cost Percent, Carrying Cost Rate]
+            description: Fraction of inventory value charged as holding cost.
+
+  # ----------------------------------------------------------------- Customer & Marketing
+
+  - name: Customer Lifetime Value (CLV)
+    category: Customer & Marketing
+    unit: currency
+    direction: higher_is_better
+    description: Total projected revenue per customer.
+    doc_formula: Purchase Value x Purchase Freq x Lifespan
+    drivers: [Retention rates, Upselling, Brand advocacy]
+    primary_metric: Revenue
+    materiality: {min_abs_pct: 6.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      # Kept in the vocabulary so it reports as unavailable with a reason, rather
+      # than being silently absent. A daily extract does not carry a customer
+      # lifespan, and supplying one as a constant would be the model producing a
+      # number -- which is the one thing it may never do.
+      - variant_id: standard
+        expression: purchase_value * purchase_frequency * lifespan
+        aggregation_safe: false
+        note: >
+          Lifespan is a per-customer duration, not a per-period quantity. This
+          binds only against a file that already carries all three as columns.
+        measures:
+          - alias: purchase_value
+            synonyms: [Purchase Value, Average Order Value, Average Transaction Value]
+            description: Average spend per purchase.
+          - alias: purchase_frequency
+            kind: rate
+            synonyms: [Purchase Frequency, Purchase Freq, Orders Per Customer]
+            description: Purchases per customer per period.
+          - alias: lifespan
+            kind: attribute
+            synonyms: [Lifespan, Customer Lifespan, Retention Years]
+            description: How long a customer keeps buying.
+
+  - name: Customer Acquisition Cost (CAC)
+    category: Customer & Marketing
+    unit: currency
+    direction: lower_is_better
+    description: Financial cost to acquire a buyer.
+    doc_formula: Sales & Mktg Expenses / New Customers
+    drivers: [Ad bidding costs, Campaign efficiency, Organic reach]
+    primary_metric: Costs
+    materiality: {min_abs_pct: 5.0, min_business_impact: 2.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: standard
+        expression: spend / new_customers
+        measures:
+          - alias: spend
+            synonyms: [Sales Marketing Expenses, Sales & Mktg Expenses, Marketing Spend, Marketing Expenses]
+            controllable_hint: true
+            owner_hint: Growth Marketing
+            description: Total marketing outlay.
+          - alias: new_customers
+            synonyms: [New Customers, Customers Acquired, New Buyers]
+            description: First-time buyers in the period.
+
+  - name: Return on Ad Spend (ROAS)
+    category: Customer & Marketing
+    unit: ratio
+    direction: higher_is_better
+    description: Direct revenue per advertising dollar.
+    doc_formula: Revenue from Ads / Cost of Ads
+    drivers: [Ad targeting accuracy, Conversion friction]
+    primary_metric: Margins
+    materiality: {min_abs_pct: 5.0, min_business_impact: 0.15}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: standard
+        expression: revenue_from_ads / cost_of_ads
+        measures:
+          - alias: revenue_from_ads
+            synonyms: [Revenue From Ads, Ad Revenue, Attributed Revenue]
+            description: Revenue attributed to paid media.
+          - alias: cost_of_ads
+            synonyms: [Cost Of Ads, Ad Spend, Advertising Cost, Media Spend]
+            controllable_hint: true
+            owner_hint: Performance Marketing
+            description: Paid media spend.
+
+  - name: Customer Retention Rate
+    category: Customer & Marketing
+    unit: percent
+    direction: higher_is_better
+    description: Brand loyalty and return rate.
+    doc_formula: ((End Cust. - New Cust.) / Start Cust.) * 100
+    drivers: [Customer service, Loyalty programs, Engagement]
+    primary_metric: Retention
+    materiality: {min_abs_pct: 3.0, min_business_impact: 0.5}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: standard
+        expression: (end_customers - new_customers) / start_customers * 100
+        aggregation_safe: false
+        note: >
+          Start and end customer counts are levels read at the period boundaries.
+          Summed to a coarser grain they double-count the same customers, so this
+          holds only at the grain the counts were taken on.
+        measures:
+          - alias: end_customers
+            kind: stock
+            synonyms: [End Customers, Ending Customers, Closing Customers]
+            description: Customers at the end of the period.
+          - alias: new_customers
+            synonyms: [New Customers, Customers Acquired, New Buyers]
+            description: First-time buyers in the period.
+          - alias: start_customers
+            kind: stock
+            synonyms: [Start Customers, Starting Customers, Opening Customers]
+            description: Customers at the start of the period.
+
+  - name: Churn Rate
+    category: Customer & Marketing
+    unit: percent
+    direction: lower_is_better
+    description: Customer attrition.
+    doc_formula: (Customers Lost / Start Customers) * 100
+    drivers: [Competitor promotions, Quality drops]
+    primary_metric: Churn
+    materiality: {min_abs_pct: 5.0, min_business_impact: 0.5}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: standard
+        expression: customers_lost / start_customers * 100
+        aggregation_safe: false
+        note: >
+          Start customers is a level read at the period boundary; summing it to a
+          coarser grain double-counts the same customers.
+        measures:
+          - alias: customers_lost
+            synonyms: [Customers Lost, Lost Customers, Churned Customers]
+            description: Customers who stopped buying in the period.
+          - alias: start_customers
+            kind: stock
+            synonyms: [Start Customers, Starting Customers, Opening Customers]
+            description: Customers at the start of the period.
+
+  # ----------------------------------------------------------------- Financial Health
+
+  - name: Gross Profit
+    category: Financial Health
+    unit: currency
+    direction: higher_is_better
+    description: Absolute profit before operating expenses.
+    doc_formula: Total Revenue - COGS
+    drivers: [COGS efficiency, Revenue drivers]
+    primary_metric: Profit
+    materiality: {min_abs_pct: 4.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      # Derived first: revenue and COGS are both flows, so the subtraction survives
+      # aggregation exactly, and the two measures become independent DAG drivers.
+      - variant_id: from_revenue_and_cogs
+        expression: total_revenue - cogs
+        measures:
+          - alias: total_revenue
+            synonyms: [Total Revenue, Net Sales, Retail Sales, Revenue]
+            description: Revenue recognised in the period.
+          - alias: cogs
+            synonyms: [COGS, Cost Of Goods Sold, Cost of Sales]
+            controllable_hint: true
+            owner_hint: Supply Chain
+            description: Direct cost of the goods sold.
+      - variant_id: direct
+        expression: gross_profit
+        measures:
+          - alias: gross_profit
+            synonyms: [Total Gross Profit, Gross Profit]
+            description: Revenue less cost of goods sold.
+
+  - name: Net Profit
+    category: Financial Health
+    unit: currency
+    direction: higher_is_better
+    description: Absolute bottom-line profit.
+    doc_formula: Total Revenue - Total Costs
+    drivers: [All revenue and cost drivers]
+    primary_metric: Profit
+    materiality: {min_abs_pct: 4.0, min_business_impact: 1.0}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: from_revenue_and_expenses
+        expression: total_revenue - total_expenses
+        measures:
+          - alias: total_revenue
+            synonyms: [Total Revenue, Net Sales, Retail Sales, Revenue]
+            description: Revenue recognised in the period.
+          - alias: total_expenses
+            synonyms: [Total Expenses, Total Costs, Total Cost]
+            controllable_hint: true
+            owner_hint: Finance
+            description: All costs in the period.
+      - variant_id: direct
+        expression: net_profit
+        measures:
+          - alias: net_profit
+            synonyms: [Net Profit, Net Income, Bottom Line]
+            description: Profit after all costs.
+
+  - name: Gross Profit Margin
+    category: Financial Health
+    unit: percent
+    direction: higher_is_better
+    description: Percentage margin on direct goods.
+    doc_formula: (Gross Profit / Total Revenue) * 100
+    drivers: [Vendor pricing, Raw material costs, Discounts]
+    primary_metric: Margins
+    materiality: {min_abs_pct: 3.0, min_business_impact: 0.5}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: from_revenue_and_cogs
+        expression: (total_revenue - cogs) / total_revenue * 100
+        measures:
+          - alias: total_revenue
+            synonyms: [Total Revenue, Net Sales, Retail Sales, Revenue]
+            description: Revenue recognised in the period.
+          - alias: cogs
+            synonyms: [COGS, Cost Of Goods Sold, Cost of Sales]
+            controllable_hint: true
+            owner_hint: Supply Chain
+            description: Direct cost of the goods sold.
+      - variant_id: from_gross_profit
+        expression: gross_profit / total_revenue * 100
+        measures:
+          - alias: gross_profit
+            synonyms: [Total Gross Profit, Gross Profit]
+            description: Revenue less cost of goods sold.
+          - alias: total_revenue
+            synonyms: [Total Revenue, Net Sales, Retail Sales, Revenue]
+            description: Revenue recognised in the period.
+
+  - name: Net Profit Margin
+    category: Financial Health
+    unit: percent
+    direction: higher_is_better
+    description: Percentage margin overall.
+    doc_formula: (Net Profit / Total Revenue) * 100
+    drivers: [Supply chain efficiency, Overhead control, Pricing power]
+    primary_metric: Margins
+    materiality: {min_abs_pct: 3.0, min_business_impact: 0.5}
+    guards: {denominator_zero: nan, min_rows_per_cell: 3, min_history_periods: 28}
+    variants:
+      - variant_id: from_revenue_and_expenses
+        expression: (total_revenue - total_expenses) / total_revenue * 100
+        measures:
+          - alias: total_revenue
+            synonyms: [Total Revenue, Net Sales, Retail Sales, Revenue]
+            description: Revenue recognised in the period.
+          - alias: total_expenses
+            synonyms: [Total Expenses, Total Costs, Total Cost]
+            controllable_hint: true
+            owner_hint: Finance
+            description: All costs in the period.
+      - variant_id: from_net_profit
+        expression: net_profit / total_revenue * 100
+        measures:
+          - alias: net_profit
+            synonyms: [Net Profit, Net Income, Bottom Line]
+            description: Profit after all costs.
+          - alias: total_revenue
+            synonyms: [Total Revenue, Net Sales, Retail Sales, Revenue]
+            description: Revenue recognised in the period.

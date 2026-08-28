@@ -1,0 +1,18 @@
+# Where an accepted CSV lands, and nothing more.
+#
+# `date_column` and `entity_columns` are the two fields that genuinely cannot be
+# guessed before seeing a file, so they are left at their least committal values
+# and written by `confirm` from what the extract turns out to carry: the date
+# column by name then by parseability, the dimensions by cardinality.
+#
+# `path` stays company-relative -- it is where `attach_source_data` puts the file
+# once a contract exists to validate it against. An upload staged during
+# onboarding deliberately does *not* live here; it waits in `data/_staging/` so
+# `missing_datasets` keeps reporting this company as awaiting data.
+source_id: primary
+type: csv
+path: data/raw/primary.csv
+date_column: Date
+entity_columns: []
+refresh_cadence: unknown
+as_of: null

@@ -59,6 +59,96 @@ on), `orbit-grocers` (one source, a smaller contract), `testco` (pytest fixture;
 declares `retail_daily` exactly as acme does, so anything sharing state by source
 id alone fails loudly).
 
+Templates: `retail`, `supply-chain`, `minimal`, and `blank` — which declares no
+KPIs and an empty DAG, for a tenant whose extract does not match any shipped
+contract. Fill it in with `plan_kpis` and `confirm_kpis` below.
+
+---
+
+## `plan_kpis` — derive KPIs from a tenant's own extract
+
+```bash
+uv run python -m kpi_engine.cli.plan_kpis --company $C --from-csv extract.csv
+uv run python -m kpi_engine.cli.plan_kpis --company $C --from-csv extract.csv --no-llm
+uv run python -m kpi_engine.cli.plan_kpis --company $C --from-csv extract.csv --json
+```
+
+Stages the upload, profiles it, and proposes which of the 19 catalogue KPIs the
+file can support. Writes `configs/_draft/kpi_plan.json`; changes nothing else.
+
+The upload lands in `data/_staging/`, **outside** every declared
+`SourceSpec.path`, so the company keeps reporting `awaiting_data` and `ask` keeps
+refusing it. That is what stops a tenant being briefly answerable against a
+contract written for a different file.
+
+| flag | default | description |
+|---|---|---|
+| `--company` | — | Required. |
+| `--from-csv` | — | Required. The extract to plan against. |
+| `--source-id` | the primary | Which declared source this file is. |
+| `--plan-id` | a timestamp | Names the draft. |
+| `--model` | `gemini-3.5-flash-lite` | Override the model. |
+| `--no-llm` | off | Exact column-name matching only. No API key needed. |
+| `--json` | off | The plan as JSON — the same shape `/kpi-plan/sync` returns. |
+
+Two things run in order. **Exact name matching** binds every alias whose synonym
+equals a column under `normalise` (lowercase, strip non-alphanumerics); on a
+well-named extract this alone binds most of the vocabulary, and what it binds it
+binds correctly. **The model** is then shown that result as settled and asked only
+to place what is left — so `--no-llm` proposes fewer KPIs, never wrong ones.
+
+A KPI the file cannot support is reported in `unavailable[]` with the columns it
+looked for, which is more useful than its absence. A variant that does not survive
+aggregation to a grain (`Beg. Inventory + Purchases - End. Inventory` summed over
+a week counts the same goods twice) is offered but never auto-selected.
+
+---
+
+## `confirm_kpis` — commit the plan and warm the pipeline
+
+```bash
+uv run python -m kpi_engine.cli.confirm_kpis --company $C --accept-all
+uv run python -m kpi_engine.cli.confirm_kpis --company $C \
+    --accept "Gross Profit Margin" --accept ROAS
+uv run python -m kpi_engine.cli.confirm_kpis --company $C --accept-all \
+    --reject "Churn Rate" --bind "ROAS.cost_of_ads=Paid Media Outlay" \
+    --time-grain week --entity-keys Region
+```
+
+| flag | default | description |
+|---|---|---|
+| `--plan-id` | the current draft | Refuses a stale id rather than merging onto a plan that has changed. |
+| `--accept-all` | on when no `--accept` | Take every *recommended* KPI. |
+| `--accept KPI` | — | Repeatable. Take this one, including an opt-in variant. |
+| `--reject KPI` | — | Repeatable. Drop it. |
+| `--variant KPI=ID` | — | Compute a KPI a different way; see the plan's `alternatives`. |
+| `--bind KPI.ALIAS=COL` | — | Override one measure's column. Still validated. |
+| `--time-grain`, `--entity-keys`, `--date-column` | the plan's | Override what was inferred. |
+| `--contract-id` | `<slug>_auto_v1` | Names the written contract. |
+| `--no-warm-up` | off | Write the configuration but do not run the pipeline. |
+| `--no-llm` | off | Skip the causal call. Deterministic edges and catalogue levers still apply. |
+
+Writes four files — the source spec, `semantics/kpis.yaml`, `causal/dag.yaml` and
+`company.yaml` — after building and validating all four in memory, so a forbidden
+edge or a cycle fails before anything is touched. What it replaces is archived to
+`configs/_superseded/<plan_id>/`, and `configs/_confirmed/kpi_plan.json` records
+where every single binding came from (`synonym`, `llm`, or `user`) — the
+provenance `write_yaml`'s `safe_dump` cannot keep, since it drops comments.
+
+It then accepts the staged CSV through the *ordinary* `attach_source_data`, header
+gate included. That gate now checks the file against the contract just synthesised
+from it, so a binder bug fails loudly here instead of becoming a panel of NaN.
+
+The DAG is split: KPI nodes, measure nodes and every `deterministic` edge are
+derived from the contract's own arithmetic, and `forbidden_edges` is seeded with
+the reverse of each. Only `causal` edges and lever ownership are proposed, and an
+edge pointing at a KPI node is dropped — the algebraic layer already attributes
+that movement exactly.
+
+A **warm-up failure does not roll back** the configuration: the contract validated
+and the file passed the header gate, so a thin history is not a reason to revert a
+tenant to KPIs it never chose.
+
 ---
 
 ## `profile_source`
@@ -308,6 +398,11 @@ than four at once).
 | `POST /companies` | provision a tenant. 201, or 409 on a duplicate slug, or 422 on a bad one. |
 | `GET /companies/{c}` | one tenant, as above. 404 if unregistered. |
 | `POST /companies/{c}/sources/{sid}/data` | attach a CSV (multipart `file`). 422 naming the missing columns if it does not match the contract. |
+| `POST /companies/{c}/kpi-plan` | `text/event-stream` — stage a CSV (multipart `file`) and propose a KPI configuration from it. |
+| `POST /companies/{c}/kpi-plan/sync` | the same, folded into one JSON object. What NestJS calls. |
+| `GET /companies/{c}/kpi-plan` | the current draft, or 404. Lets a caller resume a handshake it did not start. |
+| `POST /companies/{c}/kpi-plan/confirm` | `text/event-stream` — write the configs, accept the data, warm up. |
+| `POST /companies/{c}/kpi-plan/confirm/sync` | the same, folded. |
 | `POST /companies/{c}/ask` | `text/event-stream` — one typed event per stage, as it lands. |
 | `POST /companies/{c}/ask/sync` | the same events folded into one JSON object. |
 | `GET /companies/{c}/runs/{run_id}` | the saved `agent_report.json`. |
@@ -355,6 +450,40 @@ A run keeps going after a client disconnects and still writes
 `user/<company>/outputs/<run_id>/`, so the answer stays recoverable from
 `GET /companies/{company}/runs/{run_id}`.
 
+### Onboarding events
+
+`POST /companies/{c}/kpi-plan`:
+
+| event | carries |
+|---|---|
+| `started` | `plan_id`, `company`, `source_id`, `model`, `no_llm`. |
+| `staged` | `rows`, `columns`, `header[]`, and any warnings about the upload itself. |
+| `profile` | `n_rows`, `redundant_columns{}`, `duplicate_groups[]`, `coverage[]`. The slow step. |
+| `plan` | the `KpiPlan`, twice: `stage: "matched"` (exact name matching alone) then `"resolved"` (after the model and its validator). |
+| `bindings` | what the model added beyond exact matching, and every proposal that was dropped, with the reason. |
+| `drafted` | `plan_id`, `proposed[]`, `recommended[]`, `unavailable[]`, `problems[]`, token counts. |
+| `done` | `outcome` (`drafted` \| `error`), `duration_ms`. |
+
+`POST /companies/{c}/kpi-plan/confirm`:
+
+| event | carries |
+|---|---|
+| `started` | `plan_id`, `run_id`, `company`, `model`, `no_llm`, `warm_up`. |
+| `graph` | `edges_proposed`, `edges_added`, `levers[]`, and each rejected edge with why. |
+| `configs` | `contract_id`, `graph_id`, `kpis[]`, `entity_columns`, `time_grain`, edge counts, `levers[]`, `written[]`, `superseded`. **The point of no return** — the tenant is configured, and every later failure is about the data rather than the decision. |
+| `data` | `rows`, `ready`, and `attach_source_data`'s warnings. |
+| `engine` | one per source: `flags`, `events`, `bundles`, `seconds` — or `error`, which does not undo the configuration. |
+| `done` | `outcome` (`ready` \| `configured` \| `warm_up_failed` \| `error`), `run_id`, `duration_ms`. |
+
+A decision that does not validate is a **422 with nothing written** — the merge
+and synthesis run inside the request, before the stream opens. A `plan_id` that is
+not the current draft is a **409**: someone re-proposed in between, so re-read the
+draft rather than merging stale decisions onto it. No draft at all is a **404**.
+
+There is no job registry. The warm-up writes `outputs/<run_id>/` like any run, and
+`started` names that `run_id` before any work begins, so a client that hangs up
+polls `GET /companies/{c}/runs/{run_id}` exactly as it would for `/ask`.
+
 ```bash
 curl localhost:8000/companies
 
@@ -371,6 +500,17 @@ curl -N -X POST localhost:8000/companies/acme-retail/ask -H 'content-type: appli
 curl -X POST localhost:8000/companies -H 'content-type: application/json' \
   -d '{"company_id":"demo-co","display_name":"Demo Co","domains":["retail"]}'
 curl -F file=@extract.csv localhost:8000/companies/demo-co/sources/retail_daily/data
+
+# ...or, when the extract matches no shipped contract, derive one from it
+curl -X POST localhost:8000/companies -H 'content-type: application/json' \
+  -d '{"company_id":"odd-co","display_name":"Odd Co","domains":["other"],"template":"blank"}'
+curl -F file=@extract.csv 'localhost:8000/companies/odd-co/kpi-plan/sync?no_llm=false'
+curl localhost:8000/companies/odd-co/kpi-plan            # read the draft back
+curl -N -X POST localhost:8000/companies/odd-co/kpi-plan/confirm \
+  -H 'content-type: application/json' -d '{
+  "plan_id":"kpiplan-20260828-041932",
+  "decisions":[{"name":"Churn Rate","verdict":"reject"}]}'
+curl localhost:8000/companies/odd-co                     # status: ready
 ```
 
 ---

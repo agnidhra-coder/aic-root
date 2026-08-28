@@ -29,6 +29,11 @@ from typing import Any
 from pydantic import Field
 
 from kpi_agent.models import Persona, Strict, TimeGrain
+from kpi_engine.contracts.onboarding import (
+    PLAN_ID_PATTERN,
+    PlanConfirmation,
+    PlanDecision,
+)
 from kpi_engine.contracts.tenancy import AgentDefaults, CompanySlug, Domain
 from kpi_engine.tenancy import CompanyPaths, company_config
 
@@ -121,14 +126,20 @@ def build_config(paths: CompanyPaths, req: AskRequest) -> dict[str, Any]:
 class CreateCompanyRequest(Strict):
     """`POST /companies` -- provision a tenant.
 
-    Deliberately bare bones: it carries no KPI fields. A new company's KPIs are
-    whatever its template's `configs/semantics/` declares, copied verbatim.
-    Choosing or editing them per company is separate, later work; wiring it into
-    this body now would mean two places that decide what a company measures.
+    Deliberately bare bones: it carries no KPI fields, and still should not. A
+    company created here gets its template's KPIs; a company whose extract does
+    not match any template gets them from the onboarding handshake instead --
+    `POST /companies/{c}/kpi-plan`, then `.../kpi-plan/confirm`, which rewrites
+    `configs/semantics/` and `configs/causal/` from the file itself. Either way
+    exactly one thing decides what a company measures, and it is never this body.
+
+    Seed such a tenant from the `blank` template: it declares no KPIs, so the
+    company never briefly claims metrics it cannot compute.
 
     A company is created *before* it has data. Its sources come from the template
     and point at files that do not exist yet, so it reports `awaiting_data` until
-    a CSV is attached at `POST /companies/{company}/sources/{source_id}/data`.
+    a CSV is attached at `POST /companies/{company}/sources/{source_id}/data`, or
+    until an onboarding plan is confirmed.
     """
 
     company_id: CompanySlug
@@ -148,3 +159,82 @@ class CreateCompanyRequest(Strict):
         "registry refuses an id already claimed by another tenant.",
     )
     notes: str = ""
+
+
+class PlanKpisRequest(Strict):
+    """`POST /companies/{c}/kpi-plan` -- propose a KPI configuration from a CSV.
+
+    The file arrives as multipart; these are the knobs beside it. As with
+    `AskRequest`, **no field names a filesystem path**: the upload is a body part
+    and the source is named by the id its company declared.
+    """
+
+    source_id: str | None = Field(
+        default=None,
+        description="Which declared source this file is. Defaults to the primary.",
+    )
+    model: str | None = Field(default=None, description="Override the model id.")
+    no_llm: bool = Field(
+        default=False,
+        description="Bind by exact column-name matching only. Needs no API key, "
+        "and proposes fewer KPIs -- never wrong ones.",
+    )
+    plan_id: str | None = Field(
+        default=None,
+        pattern=PLAN_ID_PATTERN,
+        description="Name the draft. Generated from the clock when omitted.",
+    )
+    logs: bool = Field(default=True, description="Forward the stage log as `log` events.")
+
+
+class ConfirmPlanRequest(Strict):
+    """`POST /companies/{c}/kpi-plan/confirm` -- accept, edit, and commit a draft.
+
+    Mirrors `PlanConfirmation` field for field, plus the transport knobs -- the
+    same relationship `AskRequest` has to the `ask` CLI, so the terminal and the
+    wire cannot configure a company differently.
+
+    An empty `decisions` list is not "accept nothing": it means the caller had no
+    corrections, and the plan's own recommendations stand. Rejecting everything
+    requires saying so, because a company with no KPIs answers every question
+    with silence.
+    """
+
+    plan_id: str = Field(pattern=PLAN_ID_PATTERN)
+    decisions: list[PlanDecision] = Field(default_factory=list)
+    date_column: str | None = None
+    entity_columns: list[str] | None = Field(
+        default=None,
+        description="null keeps the plan's choice; [] means total level and is a "
+        "real instruction, not an omission.",
+    )
+    time_grain: TimeGrain | None = None
+    contract_id: str | None = None
+    warm_up: bool = Field(
+        default=True,
+        description="Run the pipeline once after writing, so the first question "
+        "does not pay for it.",
+    )
+    model: str | None = None
+    no_llm: bool = Field(
+        default=False,
+        description="Skip the causal-structure call. The DAG keeps its derived "
+        "deterministic edges and the catalogue's lever ownership.",
+    )
+    run_id: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
+        description="Names the warm-up's directory under the company's outputs/.",
+    )
+    logs: bool = True
+
+    def as_confirmation(self) -> PlanConfirmation:
+        return PlanConfirmation(
+            plan_id=self.plan_id,
+            decisions=list(self.decisions),
+            date_column=self.date_column,
+            entity_columns=self.entity_columns,
+            time_grain=self.time_grain,
+            contract_id=self.contract_id,
+            warm_up=self.warm_up,
+        )

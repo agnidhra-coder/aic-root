@@ -146,6 +146,44 @@ def test_no_ask_field_names_a_path():
     assert banned.isdisjoint(AskRequest.model_fields)
 
 
+def test_no_onboarding_field_names_a_path():
+    """Onboarding writes configs and reads an uploaded file, so it is the most
+    tempting place to accept a path -- and the worst. The CSV arrives as a body
+    part, the source is a declared id, and the plan is named by an id constrained
+    to a directory-safe pattern.
+    """
+    from kpi_api.models import ConfirmPlanRequest, PlanKpisRequest
+
+    banned = {"dataset", "csv", "csv_path", "path", "file", "dir", "out",
+              "staged", "contract", "graph", "detection", "personas", "template"}
+    assert banned.isdisjoint(PlanKpisRequest.model_fields)
+    assert banned.isdisjoint(ConfirmPlanRequest.model_fields)
+
+
+def test_a_plan_id_cannot_climb_out_of_the_company():
+    """`plan_id` becomes a directory name under `configs/_superseded/`, so it is
+    constrained where it is declared rather than checked where it is used."""
+    from pydantic import ValidationError
+
+    from kpi_api.models import ConfirmPlanRequest
+
+    for hostile in ("../../etc", "a/b", ".hidden", ""):
+        with pytest.raises(ValidationError):
+            ConfirmPlanRequest(plan_id=hostile)
+
+
+def test_the_confirm_request_mirrors_the_confirm_cli():
+    """The API is a third view, not a second engine. A field one front-end has and
+    the other lacks is a field the two can configure a company differently by."""
+    from kpi_api.models import ConfirmPlanRequest
+    from kpi_engine.contracts.onboarding import PlanConfirmation
+
+    transport = {"model", "no_llm", "run_id", "logs"}
+    assert set(PlanConfirmation.model_fields) == (
+        set(ConfirmPlanRequest.model_fields) - transport
+    )
+
+
 def test_an_unknown_run_is_a_404_not_a_traceback(client):
     assert client.get(_url("/runs/no-such-run")).status_code == 404
 

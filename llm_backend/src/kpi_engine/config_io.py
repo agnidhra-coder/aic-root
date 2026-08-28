@@ -15,6 +15,7 @@ from typing import Any, TypeVar
 import yaml
 from pydantic import BaseModel
 
+from kpi_engine.contracts.catalogue import SeedCatalog
 from kpi_engine.contracts.configs import (
     CausalGraphSpec,
     DetectionSpec,
@@ -56,6 +57,11 @@ def load_yaml_as(path: str | Path, model: type[T]) -> T:
 
 def load_source(path: str | Path) -> SourceSpec:
     return load_yaml_as(path, SourceSpec)
+
+
+def load_seed_catalog(path: str | Path) -> SeedCatalog:
+    """The KPI vocabulary. Product-level reference, never copied into a tenant."""
+    return load_yaml_as(path, SeedCatalog)
 
 
 def load_contract(path: str | Path) -> KpiContract:

@@ -24,7 +24,12 @@ from kpi_agent.graph import stream_agent
 from kpi_agent.llm import DEFAULT_MODEL
 
 from kpi_engine.tenancy import CompanyPaths
-from kpi_api.models import AskRequest, build_config
+from kpi_api.models import (
+    AskRequest,
+    ConfirmPlanRequest,
+    PlanKpisRequest,
+    build_config,
+)
 
 # A run ends in one of three terminal nodes, all of them honest outcomes.
 _TERMINAL = {"report": "report", "clarify": "clarification", "no_findings": "no_findings"}
@@ -257,6 +262,107 @@ def _report(state: dict) -> dict:
         "report_markdown": state.get("report_markdown", ""),
         "report_path": path,
         "report_json_path": path[: -len(".md")] + ".json" if path.endswith(".md") else "",
+    }
+
+
+def plan_events(
+    req: PlanKpisRequest,
+    llm: Any = None,
+    *,
+    paths: CompanyPaths,
+    content: bytes,
+) -> Iterator[Event]:
+    """Propose a KPI configuration from an uploaded CSV.
+
+    Streams for the same reason `/ask` does: profiling a wide extract takes
+    minutes -- `find_linear_identities` searches signed combinations of up to
+    three columns -- and a client watching a silent socket cannot tell that from
+    a hang.
+    """
+    from kpi_agent.onboard import new_plan_id, propose
+
+    started = time.monotonic()
+    source_id = req.source_id or paths.primary_source_id
+    plan_id = req.plan_id or new_plan_id()
+
+    yield "started", {
+        "plan_id": plan_id,
+        "company": paths.slug,
+        "source_id": source_id,
+        "model": None if req.no_llm else (req.model or DEFAULT_MODEL),
+        "no_llm": req.no_llm,
+    }
+
+    outcome = "incomplete"
+    try:
+        for name, payload in propose(
+            paths, source_id, content=content, llm=llm, plan_id=plan_id
+        ):
+            yield name, payload
+            if name == "drafted":
+                outcome = "drafted"
+    except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+        yield "error", {"type": type(exc).__name__, "message": str(exc)}
+        outcome = "error"
+
+    yield "done", {
+        "plan_id": plan_id,
+        "outcome": outcome,
+        "duration_ms": round((time.monotonic() - started) * 1000),
+    }
+
+
+def confirm_events(
+    req: ConfirmPlanRequest,
+    llm: Any = None,
+    *,
+    paths: CompanyPaths,
+    prepared: Any = None,
+) -> Iterator[Event]:
+    """Commit a confirmed plan, then warm the pipeline up.
+
+    `prepared` is the result of `onboard.prepare`, already run inside the request
+    so a decision that does not validate is a 422 with nothing written rather
+    than an error event inside a 200. Everything from here on touches disk and
+    takes minutes, which is what the stream is for.
+    """
+    from kpi_agent.onboard import commit, new_run_id
+
+    started = time.monotonic()
+    run_id = req.run_id or new_run_id()
+
+    yield "started", {
+        "plan_id": req.plan_id,
+        "run_id": run_id,
+        "company": paths.slug,
+        "model": None if req.no_llm else (req.model or DEFAULT_MODEL),
+        "no_llm": req.no_llm,
+        "warm_up": req.warm_up,
+    }
+
+    outcome = "incomplete"
+    try:
+        for name, payload in commit(
+            paths, req.as_confirmation(), prepared=prepared, llm=llm, run_id=run_id
+        ):
+            yield name, payload
+            if name == "configs":
+                # The point of no return: the tenant is configured and every
+                # later failure is about the data, not the decision.
+                outcome = "configured"
+            elif name == "engine" and payload.get("error"):
+                outcome = "warm_up_failed"
+            elif name == "engine" and outcome == "configured":
+                outcome = "ready"
+    except Exception as exc:  # noqa: BLE001
+        yield "error", {"type": type(exc).__name__, "message": str(exc)}
+        outcome = "error"
+
+    yield "done", {
+        "run_id": run_id,
+        "plan_id": req.plan_id,
+        "outcome": outcome,
+        "duration_ms": round((time.monotonic() - started) * 1000),
     }
 
 
