@@ -22,7 +22,13 @@ from typing import Any
 from kpi_engine.causal.dag import CausalGraph
 from kpi_engine.contracts.payloads import EvidenceBundle, Freshness, SeriesProfile
 
-from kpi_agent.models import CrossSourceLink, Fact, GroundedContext
+from kpi_agent.models import (
+    ContextAlignment,
+    CrossSourceLink,
+    ExogenousFactor,
+    Fact,
+    GroundedContext,
+)
 
 
 class FactBuilder:
@@ -70,6 +76,9 @@ def build_context(
     freshness: list[Freshness],
     series_profiles: list[SeriesProfile] | None = None,
     period: tuple[str | None, str | None] = (None, None),
+    alignments: list[ContextAlignment] | None = None,
+    unaligned_factors: list[ExogenousFactor] | None = None,
+    survey: bool = False,
 ) -> GroundedContext:
     builder = FactBuilder()
     include = set(persona_spec.get("include_facts", []))
@@ -77,6 +86,69 @@ def build_context(
 
     events: list[dict[str, Any]] = []
     abstentions: list[dict[str, Any]] = []
+
+    alignments = alignments or []
+    unaligned_factors = unaligned_factors or []
+
+    # The user's own context leads the table. It is what they actually asked
+    # about, and it is the one kind of fact whose absence from the answer would
+    # read as the question having been ignored.
+    if "context" in include:
+        for alignment in alignments:
+            builder.add(
+                label=f"Context stated by the user: {alignment.factor_label}",
+                value=float(alignment.overlap_days),
+                display=(
+                    f"{alignment.factor_label}, "
+                    + (
+                        f"overlapping {alignment.event_id} by "
+                        f"{alignment.overlap_days} day(s)"
+                        if alignment.overlap_days
+                        else f"{alignment.lag_days} day(s) from {alignment.event_id}"
+                    )
+                ),
+                unit=None,
+                kind="context",
+                kpi=alignment.kpis_moved[0] if alignment.kpis_moved else None,
+                source_id=alignment.source_id,
+                method="user_asserted",
+                # `None`, not `False`. The exact/estimated distinction is about
+                # how a computed quantity was arrived at, and this one was not
+                # computed at all -- rendering it as "estimated" would credit the
+                # engine with having modelled the user's sentence.
+                exact=None,
+                lineage={
+                    "event_id": alignment.event_id,
+                    "entity_match": alignment.entity_match,
+                    "direction_agrees": alignment.direction_agrees,
+                },
+                note=alignment.note,
+            )
+        for factor in unaligned_factors:
+            builder.add(
+                label=f"Context stated by the user: {factor.label}",
+                value=None,
+                # Named, not just described. The label is what the user will
+                # recognise as their own point; a bare restatement of the detail
+                # reads like the report volunteered it.
+                display=(
+                    f"{factor.label}: {factor.detail}" if factor.detail else factor.label
+                ),
+                unit=None,
+                kind="context",
+                method="user_asserted",
+                exact=None,
+                note=(
+                    "Stated by the user. Nothing in the detected windows lines up "
+                    "with it"
+                    + (
+                        ", because no date was given to line up."
+                        if not (factor.date_start or factor.date_end)
+                        else "."
+                    )
+                    + " The engine did not measure it and cannot weigh it."
+                ),
+            )
 
     for bundle in [*sales_bundles, *scm_bundles]:
         events.append(
@@ -93,6 +165,18 @@ def build_context(
                     "what_would_resolve_it": bundle.abstention.what_would_resolve_it,
                 }
             )
+
+    # Descriptions belong in a survey, or where there is nothing else to say.
+    # Asked "why did CAC rise in the West", a reader does not want to hear that
+    # Fill Rate has been drifting -- that is a digression dressed as thoroughness.
+    # Asked "how are we doing", or asked anything at all in a period where no
+    # event cleared the thresholds, it is the answer. `_CAP_PRIORITY` then keeps
+    # trends below every attributed fact, so they can fill a budget but never
+    # displace evidence.
+    describe = survey or not (sales_bundles or scm_bundles)
+    if "trend" in include and series_profiles and describe:
+        for profile, shape in _notable_trends(series_profiles):
+            builder.add(**_trend_fact(profile, shape))
 
     if "quality" in include and series_profiles:
         for profile in _notable_profiles(series_profiles):
@@ -172,9 +256,25 @@ def build_context(
         facts=facts,
         events=events,
         links=link_facts,
+        # Everything the user asserted, aligned or not. The narrator has to be
+        # able to answer a hypothesis it could not place, and it cannot do that
+        # from a list that quietly omits the ones that did not fit.
+        exogenous=[f.model_dump(mode="json") for f in getattr(intent, "exogenous", [])],
+        alignments=list(alignments),
         abstentions=abstentions,
         freshness=[f.model_dump(mode="json") for f in freshness],
-        data_caveats=_caveats(series_profiles or [], abstentions),
+        # Counted after the cap, not before it. A caveat about four trend calls
+        # in a table that shows none is a footnote pointing at nothing -- and the
+        # cap does drop them, deliberately, when a run has attributed events to
+        # spend its budget on instead.
+        data_caveats=_caveats(
+            series_profiles or [],
+            abstentions,
+            trend_calls=sum(
+                1 for f in facts
+                if f.kind == "trend" and f.method == "theil_sen + mann_kendall"
+            ),
+        ),
         levers=levers,
         persona_brief=persona_spec.get("brief", "").strip(),
     )
@@ -318,8 +418,8 @@ def _event_entry(
 # budget before a single cross-source link is reached -- and the link is the one
 # fact that answers "is supply to blame", which is the question a second source
 # exists to make answerable.
-_CAP_PRIORITY = ["link", "movement", "confidence", "contribution", "method",
-                 "freshness", "quality"]
+_CAP_PRIORITY = ["context", "link", "movement", "confidence", "contribution",
+                 "method", "trend", "freshness", "quality"]
 
 
 def _cap(facts: list[Fact], limit: int) -> list[Fact]:
@@ -349,6 +449,189 @@ def _cap(facts: list[Fact], limit: int) -> list[Fact]:
     return sorted(kept, key=lambda f: order[f.id])
 
 
+# How many of the eda stage's descriptions are worth putting in front of a
+# reader. The persona's own `max_facts` and `_CAP_PRIORITY` trim further; this
+# bound exists so that a survey over forty series does not arrive as forty
+# sentences saying much the same thing.
+TREND_LIMIT = 12
+
+# Shapes a `SeriesProfile` can contribute, and how each is labelled. One fact
+# *kind* covers all three -- adding three kinds would mean threading three
+# entries through seven persona files for a distinction the reader does not
+# make. `method` is what separates them.
+TrendShape = str  # "trend" | "seasonality" | "phase"
+
+
+def has_notable_trends(results: dict) -> bool:
+    """Whether any source produced a description worth reporting on its own.
+
+    Read by `graph._after_run` to decide whether a survey that detected nothing
+    still has an answer. Cheap: it stops at the first hit.
+    """
+    for result in results.values():
+        for profile in getattr(result, "series_profiles", []) or []:
+            if _trend_shapes(profile):
+                return True
+    return False
+
+
+def count_trending(profiles: list[SeriesProfile] | None) -> int:
+    """Series whose underlying level is called as moving. For the no-findings table."""
+    return sum(
+        1 for p in (profiles or [])
+        if p.usable and p.trend.direction in {"rising", "falling"}
+    )
+
+
+def _trend_shapes(profile: SeriesProfile) -> list[TrendShape]:
+    """Which descriptions this series has earned, if any.
+
+    No threshold is invented here, which is the point. `eda/trend.py`'s
+    `call_direction` already names a direction only when Mann-Kendall clears the
+    configured alpha *and* the movement clears `flat_slope_pct` or
+    `min_total_change_pct`; a named direction therefore already means
+    "significant and material", and second-guessing it with a bar of our own
+    would put two materiality standards in the codebase.
+    """
+    if not profile.usable:
+        return []
+    shapes: list[TrendShape] = []
+    if profile.trend.direction in {"rising", "falling"}:
+        shapes.append("trend")
+    if profile.seasonality.detected:
+        shapes.append("seasonality")
+    if _last_phase(profile) is not None:
+        shapes.append("phase")
+    return shapes
+
+
+def _last_phase(profile: SeriesProfile):
+    """The most recent segment that broke from the one before it.
+
+    Only the last: a reader wants to know what the series is doing *now*, and
+    reciting every phase of a two-year history is what `series_profiles.json`
+    is for.
+    """
+    for segment in reversed(profile.segments):
+        if segment.pct_change_vs_previous is None:
+            continue
+        # The same bar `eda` uses for a trend to count as material end-to-end.
+        if abs(segment.pct_change_vs_previous) >= 5.0:
+            return segment
+    return None
+
+
+def _notable_trends(
+    profiles: list[SeriesProfile], limit: int = TREND_LIMIT
+) -> list[tuple[SeriesProfile, TrendShape]]:
+    """The descriptions worth stating, strongest first.
+
+    Ranked by the size of the end-to-end move rather than by significance: a
+    p-value orders series by how sure we are, and a reader scanning a survey
+    wants them ordered by how much happened.
+    """
+    ranked = sorted(
+        (p for p in profiles if _trend_shapes(p)),
+        key=lambda p: abs(p.trend.total_change_pct or 0.0),
+        reverse=True,
+    )
+    out: list[tuple[SeriesProfile, TrendShape]] = []
+    for profile in ranked:
+        for shape in _trend_shapes(profile):
+            if len(out) >= limit:
+                return out
+            out.append((profile, shape))
+    return out
+
+
+def _trend_fact(profile: SeriesProfile, shape: TrendShape) -> dict[str, Any]:
+    """One `trend` fact, whichever shape it is.
+
+    Every number a narrator might reach for -- the p-value, the period count, the
+    slope -- goes into `note`, because `verify._fact_values` reads `note` as well
+    as `display`. A description whose supporting statistics are not quotable is a
+    description the narrator has to either omit or invent.
+    """
+    where = _slice(profile.entity)
+    # Rounded to the precision the `display` string states. A fact whose `value`
+    # carries fifteen significant figures and whose display carries three invites
+    # a narrator to quote "-76.80413627059869%" -- which is grounded, passes
+    # verification, and reads as though the engine measured a series to a
+    # femtometre. The two halves of a fact should agree about how much is known.
+    common = {
+        "kind": "trend",
+        "kpi": profile.kpi,
+        "entity": profile.entity,
+        "source_id": profile.lineage.source_id,
+        # Descriptive, so neither exact algebra nor an estimate of an effect.
+        "exact": False,
+    }
+
+    if shape == "seasonality":
+        season = profile.seasonality
+        return {
+            **common,
+            "label": f"{profile.kpi} seasonality, {where}",
+            "value": round(season.strength, 2),
+            "display": (
+                f"{profile.kpi} has a repeating {season.period}-period cycle, "
+                f"strength {season.strength:.2f}"
+            ),
+            "unit": None,
+            "method": "stl_seasonality",
+            "lineage": profile.lineage.model_dump(mode="json"),
+            "note": (
+                f"Peaks at {season.peak_label}, troughs at {season.trough_label}. "
+                f"{season.reason} Descriptive only: a cycle is not a movement to "
+                f"explain."
+            ),
+        }
+
+    if shape == "phase":
+        segment = _last_phase(profile)
+        return {
+            **common,
+            "label": f"{profile.kpi} latest phase, {where}",
+            "value": round(segment.pct_change_vs_previous, 1),
+            "display": (
+                f"{profile.kpi} shifted {segment.pct_change_vs_previous:+.1f}% into "
+                f"the phase running {segment.start} to {segment.end}"
+            ),
+            "unit": "pct_delta",
+            "method": "pelt_segment",
+            "lineage": profile.lineage.model_dump(mode="json"),
+            "note": (
+                f"Phase mean {segment.mean:,.4g} over {segment.n_periods} periods, "
+                f"{segment.direction}. A structural break in the level, not an "
+                f"anomaly: no detector flagged it."
+            ),
+        }
+
+    trend = profile.trend
+    return {
+        **common,
+        "label": f"{profile.kpi} trend, {where}",
+        "value": round(trend.total_change_pct, 1)
+                 if trend.total_change_pct is not None else None,
+        "display": (
+            f"{profile.kpi} is {trend.direction}, {trend.total_change_pct:+.1f}% "
+            f"end to end"
+            + (
+                f" ({trend.slope_pct_per_period:+.2f}% per period)"
+                if trend.slope_pct_per_period is not None else ""
+            )
+        ),
+        "unit": "pct_delta",
+        "method": trend.method,
+        "lineage": profile.lineage.model_dump(mode="json"),
+        "note": (
+            f"{profile.headline} Mann-Kendall p={trend.p_value:.3f} over "
+            f"{trend.n_periods} periods. Descriptive: the series has been moving, "
+            f"which is not the same as a period having been anomalous."
+        ),
+    }
+
+
 def _notable_profiles(profiles: list[SeriesProfile], limit: int = 12) -> list[SeriesProfile]:
     """Only the profiles a reader would want flagged: the unusable and the thin.
 
@@ -359,13 +642,31 @@ def _notable_profiles(profiles: list[SeriesProfile], limit: int = 12) -> list[Se
     return notable[:limit]
 
 
-def _caveats(profiles: list[SeriesProfile], abstentions: list[dict[str, Any]]) -> list[str]:
+def _caveats(
+    profiles: list[SeriesProfile],
+    abstentions: list[dict[str, Any]],
+    trend_calls: int = 0,
+) -> list[str]:
     out: list[str] = []
     unusable = [p for p in profiles if not p.usable]
     if unusable:
         out.append(
             f"{len(unusable)} of {len(profiles)} series were not usable "
             f"({unusable[0].unusable_reason}); they are excluded from the findings."
+        )
+    if trend_calls:
+        # Not optional decoration. `configs/eda/default.yaml` records the measured
+        # false-positive rate and states plainly that the stage applies no FDR
+        # correction, deliberately -- correcting would make one series' verdict
+        # depend on which others happened to be in the run. The consequence is
+        # that a survey over many series expects a spurious call or two, and
+        # reporting trends without saying so is how a descriptive stage starts
+        # manufacturing findings.
+        out.append(
+            f"{trend_calls} of {len(profiles)} series were called trending at "
+            f"alpha 0.05, where about 4% of pure-noise series would be. No "
+            f"multiple-testing correction is applied, by design. Read a single "
+            f"trend call as a hypothesis, not a finding."
         )
     if abstentions:
         out.append(

@@ -21,9 +21,13 @@ import pytest
 from kpi_engine.causal.dag import CausalGraph
 from kpi_engine.tenancy import company_config, open_company
 from kpi_engine.contracts.payloads import (
+    DataQualitySummary,
     EventWindow,
     Lineage,
     ObservedDeviation,
+    SeasonalitySummary,
+    SeriesProfile,
+    TrendSummary,
 )
 from kpi_engine.scenarios.scm_generator import generate_scm_panel
 
@@ -31,10 +35,14 @@ from kpi_agent import build_graph, stream_agent
 from kpi_agent.llm import Usage
 from kpi_agent.intent import validate_intent
 from kpi_agent.linking import link_events
+from kpi_agent.exogenous import align_factors
+from kpi_agent.facts import build_context
+from kpi_agent.narrate import fallback_narrative
 from kpi_agent.models import (
     Action,
     AnalysisIntent,
     Claim,
+    ExogenousFactor,
     Fact,
     GroundedContext,
     Narrative,
@@ -1114,3 +1122,347 @@ def test_the_console_view_does_not_replace_the_markdown_artefact(context):
     after = render_markdown(narrative, context, verification, telemetry)
     assert before == after
     assert before.startswith("# CAC rose in the West.")
+
+
+# --------------------------------------------------------------------------- #
+# Context the user supplied, and the survey it does not turn into
+# --------------------------------------------------------------------------- #
+
+
+def _factor(**kw) -> ExogenousFactor:
+    base = dict(label="heatwave", detail="It hit 42C across the West that week.")
+    base.update(kw)
+    return ExogenousFactor(**base)
+
+
+class _Result:
+    """The two attributes `align_factors` reads off a `PipelineResult`."""
+
+    def __init__(self, events):
+        self.events = events
+        self.series_profiles = []
+
+
+def test_a_user_factor_naming_an_unknown_dimension_is_dropped_not_rejected(source_triples):
+    """A factor is the user's word, not a request. An unresolvable part of one
+    narrows the claim; it never stops the run, and it is never silently binned."""
+    resolved, problems = validate_intent(
+        _intent(exogenous=[_factor(entity_key="Weather Station", entity_value="KJFK")]),
+        source_triples,
+    )
+    assert resolved is not None
+    assert len(resolved.exogenous) == 1
+    assert resolved.exogenous[0].entity_key is None
+    assert resolved.exogenous[0].label == "heatwave"
+    assert any("Weather Station" in p for p in problems)
+
+
+def test_a_factor_with_no_dates_aligns_to_nothing():
+    """A vague mention must not smear itself across every event in the run.
+
+    Aligning it everywhere would manufacture a relationship out of the user
+    having typed a sentence, and every event would carry the same unfalsifiable
+    footnote. Reporting it unplaced is an answer; spreading it is not.
+    """
+    events = [_event("EV-1", "CAC", {"Region": "West"}, "2026-03-16", "2026-03-31")]
+    alignments, unaligned = align_factors([_factor()], {"retail_daily": _Result(events)})
+    assert alignments == []
+    assert [f.label for f in unaligned] == ["heatwave"]
+
+
+def test_an_aligned_factor_is_not_a_licence(graph, contracts):
+    """The mirror of `test_no_declared_path_means_no_link`.
+
+    Two windows on top of each other produce no cross-source link without a
+    declared path through the graph. The same two windows *do* produce a context
+    alignment -- because an alignment claims only that they coincide, which is
+    exactly what a reader needs to weigh their own hypothesis and exactly what
+    the verifier refuses to let become a cause.
+    """
+    sales_c, scm_c = contracts
+    sales = _event("EV-S", "CAC", {"Region": "West"}, "2026-03-16", "2026-03-31")
+    supply = _event("EV-C", "Fill Rate", {"Region": "West"},
+                    "2026-03-16", "2026-03-31", "scm_weekly")
+    assert link_events([sales], [supply], sales_c, scm_c, graph) == []
+
+    alignments, unaligned = align_factors(
+        [_factor(date_start="2026-03-16", date_end="2026-03-31")],
+        {"retail_daily": _Result([sales])},
+    )
+    assert unaligned == []
+    assert len(alignments) == 1
+    assert alignments[0].overlap_days == 16
+    assert alignments[0].entity_match == "unscoped"
+    assert "not a causal path" in alignments[0].note
+
+
+def test_a_factor_scoped_to_a_different_slice_does_not_align():
+    """West cannot be explained by something the user placed in the North."""
+    events = [_event("EV-1", "CAC", {"Region": "West"}, "2026-03-16", "2026-03-31")]
+    alignments, unaligned = align_factors(
+        [_factor(date_start="2026-03-16", date_end="2026-03-31",
+                 entity_key="Region", entity_value="North")],
+        {"retail_daily": _Result(events)},
+    )
+    assert alignments == []
+    assert len(unaligned) == 1
+
+
+def _with_context(context: GroundedContext) -> GroundedContext:
+    """The fixture table, plus one aligned factor carrying a number of its own."""
+    context.facts.append(Fact(
+        id="F4", label="Context stated by the user: heatwave", value=16.0,
+        display="heatwave, overlapping EV-1 by 16 day(s)", kind="context",
+        method="user_asserted", exact=False,
+        note="It hit 42.0C across the West that week. This is a coincidence in "
+             "time, not a causal path.",
+    ))
+    return context
+
+
+def test_a_context_fact_cannot_be_the_only_evidence_for_a_cause(context, graph):
+    """The user's hypothesis is not evidence for itself.
+
+    Overlapping in time licenses nothing. A cause may rest on measured evidence,
+    or on measured evidence and the user's context together -- never on the
+    context alone.
+    """
+    ctx = _with_context(context)
+    alone = _narrative(why=[Claim(
+        text="CAC rose because of the heatwave.", evidence_ids=["F4"],
+    )])
+    result = verify(alone, ctx, graph)
+    assert any(v.code == "unlicensed_context_cause" for v in result.violations)
+
+    paired = _narrative(why=[Claim(
+        text="Cost Of Ads accounts for 49.5% of the move; the heatwave the user "
+             "reports is unverified.",
+        evidence_ids=["F2", "F4"],
+    )])
+    assert not any(
+        v.code == "unlicensed_context_cause"
+        for v in verify(paired, ctx, graph).violations
+    )
+
+
+def test_a_user_asserted_number_grounds_only_the_sentence_that_cites_it(context, graph):
+    """Echoing a user's figure back must not admit it to the whole report.
+
+    A flat quotable pool would let "42" from the user's own sentence ground an
+    unrelated 42 anywhere else, which is the grounding guarantee leaking through
+    the one channel that carries unverified input.
+    """
+    ctx = _with_context(context)
+    cited = _narrative(needs_attention=[Claim(
+        text="You reported 42.0C over this window.", evidence_ids=["F4"],
+    )])
+    assert verify(cited, ctx, graph).passed
+
+    uncited = _narrative(needs_attention=[Claim(
+        text="A reading of 42.0 was involved.", evidence_ids=["F1"],
+    )])
+    assert any(
+        v.code == "ungrounded_number" for v in verify(uncited, ctx, graph).violations
+    )
+
+
+def test_an_action_citing_a_confidence_fact_may_not_null_its_confidence(context, graph):
+    """Null means "nothing measured this", not "I would rather not say".
+
+    A trend-backed recommendation has no `EvidenceBundle` and so no score, and
+    null is the honest answer. Citing a computed score and then declining to
+    quote it is a dodge wearing the same shape.
+    """
+    dodge = _narrative(actions=[Action(
+        driver="Cost Of Ads", lever="Cost Of Ads",
+        action="Cut paid search bids.", owner="Performance Marketing",
+        expected_impact="CAC falls.", confidence=None,
+        monitoring="Watch CAC weekly.", evidence_ids=["F2", "F3"],
+    )])
+    assert any(
+        v.code == "confidence_not_grounded" for v in verify(dodge, context, graph).violations
+    )
+
+    honest = _narrative(actions=[Action(
+        driver="Cost Of Ads", lever="Cost Of Ads",
+        action="Cut paid search bids.", owner="Performance Marketing",
+        expected_impact="CAC falls.", confidence=None,
+        monitoring="Watch CAC weekly.", evidence_ids=["F2"],
+    )])
+    assert verify(honest, context, graph).passed
+
+
+def _profile(kpi="CAC", entity=None, direction="rising", total_change_pct=31.4,
+             p_value=0.004, seasonal=False) -> SeriesProfile:
+    entity = {"Region": "West"} if entity is None else entity
+    return SeriesProfile(
+        kpi=kpi, entity=entity,
+        period_start=dt.date(2026, 1, 5), period_end=dt.date(2026, 8, 24),
+        time_grain="week",
+        trend=TrendSummary(
+            direction=direction, slope_per_period=0.42, slope_pct_per_period=0.91,
+            trend_strength=0.61, r_squared=0.44, p_value=p_value,
+            total_change_pct=total_change_pct, n_periods=34,
+        ),
+        seasonality=SeasonalitySummary(
+            detected=seasonal, period=4 if seasonal else None, strength=0.38 if seasonal else 0.02,
+            peak_label="week 3" if seasonal else None,
+            trough_label="week 1" if seasonal else None,
+            reason="A four-period cycle clears the strength floor." if seasonal
+                   else "Seasonal strength below the floor.",
+        ),
+        quality=DataQualitySummary(
+            n_periods=34, n_missing=0, coverage=1.0, longest_gap_periods=0,
+            mean_support=42.0, min_support=18, low_support_share=0.0,
+            sufficient_history=True, volatility_cv=0.21, outlier_share=0.03,
+        ),
+        segments=[],
+        headline=f"{kpi} is {direction} steadily.",
+        usable=True,
+        lineage=Lineage(
+            source_id="retail_daily", source_path="x.csv", contract_id="c",
+            kpi=kpi, columns=[], time_grain="week", entity_filter=entity,
+        ),
+    )
+
+
+def _survey_context(persona: str, graph) -> GroundedContext:
+    """A survey table: no events at all, two trends, one placed factor, one not."""
+    spec = DEMO.personas()[persona]
+    alignments, unaligned = align_factors(
+        [
+            _factor(label="heatwave", date_start="2026-03-16", date_end="2026-03-31"),
+            _factor(label="rail strike", detail="Freight was held up in June."),
+        ],
+        {"retail_daily": _Result(
+            [_event("EV-1", "CAC", {"Region": "West"}, "2026-03-16", "2026-03-31")]
+        )},
+    )
+    return build_context(
+        question="how are we doing?",
+        intent=_intent(persona=persona, exogenous=[
+            _factor(label="heatwave", date_start="2026-03-16", date_end="2026-03-31"),
+            _factor(label="rail strike", detail="Freight was held up in June."),
+        ]),
+        persona_spec=spec,
+        run_id="pytest-survey",
+        sales_bundles=[], scm_bundles=[], links=[],
+        graph=graph, freshness=[],
+        series_profiles=[
+            _profile("CAC", {"Region": "West"}, "rising", 31.4),
+            _profile("ROAS", {"Region": "North"}, "falling", -18.2, seasonal=True),
+        ],
+        alignments=alignments,
+        unaligned_factors=unaligned,
+        survey=True,
+    )
+
+
+def test_a_trend_call_carries_the_alpha_caveat(graph):
+    """`eda/` applies no multiple-testing correction, deliberately.
+
+    At alpha 0.05 roughly one series in twenty-five is called trending by
+    chance, and the stage declines to correct for it because that would make one
+    series' verdict depend on which others happened to be in the run. Surfacing
+    trends without saying so is how a stage that describes starts manufacturing
+    findings, so the caveat is part of the feature rather than decoration.
+    """
+    ctx = _survey_context("analyst", graph)
+    trends = [f for f in ctx.facts if f.kind == "trend"]
+    assert trends, "a rising and a falling series should both be reported"
+    assert any("alpha 0.05" in c and "hypothesis, not a finding" in c
+               for c in ctx.data_caveats)
+
+
+def test_a_survey_with_no_events_still_has_something_to_say(graph):
+    """The dead end this replaces: nothing detected used to mean nothing said."""
+    ctx = _survey_context("exec", graph)
+    assert ctx.events == []
+    story = fallback_narrative(ctx, "test")
+    assert "No KPI moved materially" in story.headline
+    assert "trending or seasonal" in story.headline
+    assert story.what_happened
+
+
+@pytest.mark.parametrize("persona", ["analyst", "exec", "ops"])
+def test_the_template_survives_context_and_trends_for_every_persona(persona, graph):
+    """The fallback is the floor, and these are two new ways for it to fall through.
+
+    Both new fact kinds are new sources of an uncited claim, an ungrounded
+    number, or a cause resting on the user's own word -- the three things the
+    verifier exists to catch. Personas select different kinds, so each one is a
+    different table.
+    """
+    ctx = _survey_context(persona, graph)
+    story = fallback_narrative(ctx, "test")
+    result = verify(story, ctx, graph)
+    assert result.passed, result.violations
+    # The unplaced factor is answered rather than dropped.
+    assert any("rail strike" in item for item in story.abstained_from)
+
+
+@pytest.mark.slow
+def test_survey_mode_is_derived_from_the_plan_not_asked_of_the_model():
+    """An empty KPI list already means "every KPI" in three places downstream.
+
+    Reading survey mode off it keeps one fact in one place, and means a question
+    that named a KPI cannot be swept into a survey by a planner having a bad day
+    -- or the reverse.
+    """
+    grounded = Narrative(
+        headline="Several KPIs moved.",
+        what_happened=[Claim(text="A material movement was detected.", evidence_ids=["F1"])],
+    )
+    swept = _invoke(
+        StubLlm(_intent(sources=[PRIMARY], entity_keys=["Region"], kpis=[]),
+                grounded.model_copy(deep=True)),
+        run_id="pytest-survey-on",
+    )
+    assert swept["survey"] is True
+
+    aimed = _invoke(
+        StubLlm(_intent(sources=[PRIMARY], entity_keys=["Region"], kpis=["CAC"]),
+                grounded.model_copy(deep=True)),
+        run_id="pytest-survey-off",
+    )
+    assert aimed["survey"] is False
+
+    # Asked "how are we doing?", the planner is as likely to enumerate the
+    # catalogue as to leave the field empty. Those are the same instruction
+    # written two ways, and a real run found this: naming both of a tenant's
+    # KPIs produced "no material movement" over a series whose margin had
+    # fallen 76% end to end, because the empty-list check did not fire.
+    everything = sorted(k.name for k in DEMO.contract(PRIMARY).kpis)
+    enumerated = _invoke(
+        StubLlm(_intent(sources=[PRIMARY], entity_keys=["Region"], kpis=everything),
+                grounded.model_copy(deep=True)),
+        run_id="pytest-survey-enumerated",
+    )
+    assert enumerated["survey"] is True
+
+
+@pytest.mark.slow
+def test_the_context_node_runs_and_reports_what_it_could_not_place():
+    """A hypothesis the run cannot place still reaches the report.
+
+    The failure this guards against is the quiet one: the user names something,
+    the engine finds nothing that lines up, and the report simply never mentions
+    it -- which reads as the factor having been considered and dismissed.
+    """
+    grounded = Narrative(
+        headline="Several KPIs moved.",
+        what_happened=[Claim(text="A material movement was detected.", evidence_ids=["F1"])],
+    )
+    state = _invoke(
+        StubLlm(
+            _intent(sources=[PRIMARY], entity_keys=["Region"],
+                    exogenous=[_factor(label="rail strike",
+                                       detail="Freight was held up.")]),
+            grounded,
+        ),
+        run_id="pytest-context-node",
+    )
+    assert [f.label for f in state["unaligned_factors"]] == ["rail strike"]
+    assert any(f.kind == "context" for f in state["context"].facts)
+    assert "Context you provided" in state["report_markdown"]
+    assert "rail strike" in state["report_markdown"]

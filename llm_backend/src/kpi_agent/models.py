@@ -30,6 +30,49 @@ class Strict(BaseModel):
 # --------------------------------------------------------------------------- #
 
 
+class ExogenousFactor(Strict):
+    """Something the USER says happened, which the data does not contain.
+
+    Weather, a strike, a competitor's promotion, a public holiday. It is
+    *transcribed*, never measured: the model's job here is to record what was
+    said without inventing specifics around it, and nothing downstream is
+    permitted to turn one of these into a quantity. An `EvidenceBundle` is what
+    the engine found; this is what the user believes, and the two must stay
+    visibly different all the way to the page.
+
+    Flat string fields rather than a nested `dict[str, str]` for the entity, for
+    the same reason `MeasureBinding` is flat: nested maps compile to
+    `additionalProperties`, which these APIs handle least reliably.
+    """
+
+    label: str = Field(description="A short name for it. 'heatwave', 'rail strike'.")
+    detail: str = Field(
+        description="What the user said, in one sentence. Transcribe it -- do not "
+        "add a magnitude, a date or a mechanism they did not give you."
+    )
+    date_start: str | None = Field(
+        default=None,
+        description="ISO date, only if they gave one. Null if they were vague.",
+    )
+    date_end: str | None = Field(default=None, description="ISO date, or null.")
+    entity_key: str | None = Field(
+        default=None,
+        description="A catalog entity column, if they scoped it to one. Null otherwise.",
+    )
+    entity_value: str | None = Field(
+        default=None, description="A value of that column, verbatim from the catalog."
+    )
+    affects_kpis: list[str] = Field(
+        default_factory=list,
+        description="Catalog KPI names they said it touched. Empty means they did "
+        "not say, which is not the same as 'all'.",
+    )
+    expected_direction: Literal["increase", "decrease", "unknown"] = Field(
+        default="unknown",
+        description="Which way they think it pushed the KPI. 'unknown' unless they said.",
+    )
+
+
 class AnalysisIntent(Strict):
     """A user question, resolved against the catalog into a runnable configuration.
 
@@ -77,6 +120,12 @@ class AnalysisIntent(Strict):
         description="Set this ONLY if the question cannot be resolved against the "
         "catalog -- an unknown KPI, an ambiguous entity, a period outside coverage. "
         "State the single question that would resolve it. Null otherwise.",
+    )
+    exogenous: list[ExogenousFactor] = Field(
+        default_factory=list,
+        description="Context the question asserts that the data does not contain. "
+        "Recording one changes nothing about the configuration you choose: it is a "
+        "hypothesis for the reader to weigh, and the engine never treats it as a cause.",
     )
 
 
@@ -129,6 +178,31 @@ class CrossSourceLink(Strict):
     note: str
 
 
+class ContextAlignment(Strict):
+    """A user-asserted factor whose window happens to sit on a detected event.
+
+    Deliberately *not* a `CrossSourceLink`. A link is licensed by a declared path
+    through the causal graph; this is date and entity arithmetic and nothing else,
+    so it is a coincidence in time that a reader may find worth knowing. It never
+    acquires a licence, never carries a share, and never becomes a cause -- the
+    note says so, the fact built from it says so, and `verify.py` enforces it.
+    """
+
+    factor_label: str
+    event_id: str
+    source_id: str | None = None
+    overlap_days: int
+    lag_days: int
+    entity_match: Literal["exact", "unscoped"]
+    kpis_moved: list[str] = Field(default_factory=list)
+    direction_agrees: bool | None = Field(
+        default=None,
+        description="Whether the user's expected direction matches the observed "
+        "sign. None when either side did not say.",
+    )
+    note: str
+
+
 class GroundedContext(Strict):
     """Everything the narrator sees. Nothing else is in its context window."""
 
@@ -143,6 +217,10 @@ class GroundedContext(Strict):
     facts: list[Fact] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
     links: list[CrossSourceLink] = Field(default_factory=list)
+    # What the user asserted, resolved. Present even where nothing aligned, so a
+    # hypothesis the evidence cannot place is answered rather than ignored.
+    exogenous: list[dict[str, Any]] = Field(default_factory=list)
+    alignments: list[ContextAlignment] = Field(default_factory=list)
     abstentions: list[dict[str, Any]] = Field(default_factory=list)
     freshness: list[dict[str, Any]] = Field(default_factory=list)
     data_caveats: list[str] = Field(default_factory=list)
@@ -174,7 +252,12 @@ class Action(Strict):
     expected_impact: str = Field(
         description="What should change if this works, referencing a quantified fact."
     )
-    confidence: float = Field(description="0-1, taken from the event's confidence score.")
+    confidence: float | None = Field(
+        default=None,
+        description="0-1, taken from the event's confidence score. Null when the "
+        "recommendation rests on a descriptive finding rather than a measured "
+        "explanation -- say so in the text rather than inventing a number.",
+    )
     monitoring: str = Field(description="Which KPI to watch, at which grain, over what period.")
     evidence_ids: list[str] = Field(default_factory=list)
 
@@ -218,6 +301,7 @@ class Violation(Strict):
         "unknown_owner",
         "uncontrollable_lever",
         "causal_claim_on_abstention",
+        "unlicensed_context_cause",
         "direction_contradicts_evidence",
         "confidence_not_grounded",
     ]

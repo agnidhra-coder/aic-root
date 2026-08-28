@@ -52,6 +52,21 @@ as settled fact.
 6. A cross-source link is only valid where the facts give you one. Do not connect \
 a supply-chain movement to a sales movement on your own initiative -- if the table \
 has no link fact, the connection was not licensed and does not exist.
+7. A `context` fact is something the USER told us, not something the engine \
+measured. You may put it in front of the reader as a candidate worth weighing, and \
+you must say it is unverified and untested. It never gets a share, a magnitude or \
+the word "caused". It never displaces an attributed driver: where a contribution \
+explains a move, the user's factor is at most a possible reason that driver moved. \
+A `context` fact may not be the only evidence for a sentence in `why` -- pair it with \
+the measured evidence it bears on, or put it in `needs_attention` instead.
+7b. If the user asserted something and nothing aligned with it, say so plainly in \
+`abstained_from`. "Nothing in the detected windows lines up with that" is an answer, \
+and a better one than quietly dropping their question.
+8. A `trend` fact is descriptive. It says what a series has been doing, not that \
+anything is wrong and not why. It is not a detection and carries no cause. Where a \
+trend and an attributed event coexist, the event is the finding and the trend is its \
+background. Where there are trends and no events, the trends are the answer -- report \
+them as what to watch, not as what went wrong.
 
 Write plainly. No hedging filler, no restating the question back, no summary of \
 what you are about to say. Lead with what changed and what it means.
@@ -146,12 +161,27 @@ def fallback_narrative(context: GroundedContext, reason: str = "") -> Narrative:
     contributions = [f for f in context.facts if f.kind == "contribution"]
     confidences = [f for f in context.facts if f.kind == "confidence"]
     links = [f for f in context.facts if f.kind == "link"]
+    trends = [f for f in context.facts if f.kind == "trend"]
+    # An aligned factor has a fact id it can be cited from; an unplaced one has a
+    # fact with no value. The split matters because the two belong in different
+    # sections: one is context on a finding, the other is an unanswered question.
+    contexts = [f for f in context.facts if f.kind == "context"]
+    placed = [f for f in contexts if f.value is not None]
+    unplaced = [f for f in contexts if f.value is None]
 
     what: list[Claim] = [
         Claim(text=f"{f.display} in {_slice(f.entity)}. {f.note or ''}".strip(),
               evidence_ids=[f.id])
         for f in movements[:8]
     ]
+    # Trends carry `what_happened` when nothing was detected, and supplement it
+    # when something was. Either way they are stated as descriptions -- the
+    # wording never asserts that anything went wrong.
+    for f in trends[: 8 if not movements else 4]:
+        what.append(Claim(
+            text=f"{f.display}, in {_slice(f.entity)}. Descriptive only.",
+            evidence_ids=[f.id],
+        ))
 
     exact = [f for f in contributions if f.exact]
     estimated = [f for f in contributions if not f.exact]
@@ -169,6 +199,18 @@ def fallback_narrative(context: GroundedContext, reason: str = "") -> Narrative:
     attention: list[Claim] = []
     for f in links:
         attention.append(Claim(text=f"{f.label}. {f.note or ''}".strip(), evidence_ids=[f.id]))
+    # A factor the user raised that sits on a detected event belongs in front of
+    # them -- but here, not in `why`. It has no causal licence, and `verify`
+    # rejects a `why` claim resting on one alone.
+    for f in placed:
+        attention.append(Claim(
+            text=(
+                f"You mentioned {f.display}. The engine did not measure this and "
+                f"cannot confirm it caused anything; it is offered as a coincidence "
+                f"in time for you to weigh."
+            ),
+            evidence_ids=[f.id],
+        ))
     for f in confidences:
         if f.value is not None and f.value < 0.6:
             attention.append(Claim(
@@ -191,7 +233,9 @@ def fallback_narrative(context: GroundedContext, reason: str = "") -> Narrative:
             action=f"Review {driver} for {_slice(f.entity)} over the flagged window.",
             owner=lever_owner[driver],
             expected_impact=f"Reversing this driver addresses {f.display}.",
-            confidence=float(score) if score is not None else 0.0,
+            # `None`, not `0.0`. A fabricated zero reads as "we measured no
+            # confidence in this" when the truth is that nothing was measured.
+            confidence=float(score) if score is not None else None,
             monitoring=f"Watch {f.kpi} at {context.time_grain} grain for the next four periods.",
             evidence_ids=[f.id],
         ))
@@ -212,7 +256,14 @@ def fallback_narrative(context: GroundedContext, reason: str = "") -> Narrative:
             f"What would resolve it: {_join(head['what_would_resolve_it'])}."
         )
 
-    headline = _headline(movements, links, context)
+    for f in unplaced:
+        abstained.append(
+            f"{f.display} — stated, but nothing in the detected windows lines up "
+            f"with it. What would resolve it: a dated window for the factor, or a "
+            f"column in the data that carries it."
+        )
+
+    headline = _headline(movements, links, context, trends)
 
     uncertainty = (
         "This report was assembled deterministically from the evidence bundles"
@@ -236,7 +287,8 @@ def fallback_narrative(context: GroundedContext, reason: str = "") -> Narrative:
     )
 
 
-def _headline(movements: list, links: list, context: GroundedContext) -> str:
+def _headline(movements: list, links: list, context: GroundedContext,
+              trends: list | None = None) -> str:
     """A summary line, assembled rather than quoted.
 
     Using the first movement's display string verbatim -- as this did originally --
@@ -244,8 +296,18 @@ def _headline(movements: list, links: list, context: GroundedContext) -> str:
     Counting is more useful and stays just as grounded: every number here is a count
     of facts in the table, not a measurement drawn from one.
     """
+    trends = trends or []
     if not movements:
-        return "No material KPI movement was detected in the requested slice and period."
+        if not trends:
+            return "No material KPI movement was detected in the requested slice and period."
+        # A survey that detected nothing has not found nothing. Saying so in one
+        # line -- and saying which it is -- is the difference between a quiet
+        # period and an uneventful one.
+        series = len({(f.kpi, tuple(sorted(f.entity.items()))) for f in trends})
+        return (
+            f"No KPI moved materially, but {series} "
+            f"{'series is' if series == 1 else 'series are'} trending or seasonal."
+        )
 
     kpis: list[str] = []
     for f in movements:

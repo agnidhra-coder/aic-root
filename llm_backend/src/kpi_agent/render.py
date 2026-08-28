@@ -42,7 +42,7 @@ def render_markdown(
         for act in narrative.actions:
             a(
                 f"| {act.driver} | {act.lever} | {act.action} | {act.owner} | "
-                f"{act.expected_impact} | {act.confidence:.2f} | {act.monitoring} | "
+                f"{act.expected_impact} | {_confidence(act.confidence)} | {act.monitoring} | "
                 f"{', '.join(act.evidence_ids) or '—'} |"
             )
         a("")
@@ -58,6 +58,35 @@ def render_markdown(
     if narrative.uncertainty:
         a("## Uncertainty\n")
         a(narrative.uncertainty + "\n")
+
+    if context.exogenous:
+        a("## Context you provided\n")
+        a("Stated in the question, not measured by the engine. Where a row lines up "
+          "with a detected event, that is a coincidence in time and not a causal "
+          "path — unlike the cross-source links below, nothing licenses it.\n")
+        a("| Factor | As stated | Window | Scope | Lines up with |")
+        a("|---|---|---|---|---|")
+        by_label: dict[str, list] = {}
+        for alignment in context.alignments:
+            by_label.setdefault(alignment.factor_label, []).append(alignment)
+        for factor in context.exogenous:
+            label = factor.get("label", "")
+            hits = by_label.get(label, [])
+            window = " to ".join(
+                x for x in (factor.get("date_start"), factor.get("date_end")) if x
+            ) or "no date given"
+            scope = (
+                f"{factor['entity_key']}={factor['entity_value']}"
+                if factor.get("entity_key") and factor.get("entity_value")
+                else "unscoped"
+            )
+            lines_up = ", ".join(
+                f"{h.event_id} ({h.overlap_days}d overlap)" if h.overlap_days
+                else f"{h.event_id} ({h.lag_days}d apart)"
+                for h in hits
+            ) or "nothing detected"
+            a(f"| {label} | {factor.get('detail', '')} | {window} | {scope} | {lines_up} |")
+        a("")
 
     if context.links:
         a("## Cross-source links\n")
@@ -124,6 +153,17 @@ def render_markdown(
       "produced no quantity.\n")
 
     return "\n".join(lines)
+
+
+def _confidence(score: float | None) -> str:
+    """An em dash for a recommendation nothing measured a confidence for.
+
+    `0.00` would read as "we are confident this is worthless", which is a
+    different and much stronger claim than "no event backed this, so there is no
+    score to quote". Shared by the markdown artefact and the console view so the
+    two cannot say different things about the same action.
+    """
+    return "—" if score is None else f"{score:.2f}"
 
 
 def _section(a, title: str, claims: list) -> None:
@@ -265,6 +305,36 @@ def render_console(
             )
         engine.add_row(per_source)
 
+    if context.exogenous:
+        engine.add_row("")
+        engine.add_row(Text(
+            "context you provided — stated, not measured; overlap is coincidence, "
+            "not a causal path",
+            style="dim",
+        ))
+        supplied = Table(box=None, pad_edge=False, header_style="dim")
+        for col in ("factor", "window", "scope", "lines up with"):
+            supplied.add_column(col, overflow="fold")
+        by_label: dict[str, list] = {}
+        for alignment in context.alignments:
+            by_label.setdefault(alignment.factor_label, []).append(alignment)
+        for factor in context.exogenous:
+            hits = by_label.get(factor.get("label", ""), [])
+            window = " to ".join(
+                x for x in (factor.get("date_start"), factor.get("date_end")) if x
+            ) or "no date given"
+            scope = (
+                f"{factor['entity_key']}={factor['entity_value']}"
+                if factor.get("entity_key") and factor.get("entity_value")
+                else "unscoped"
+            )
+            supplied.add_row(
+                factor.get("label", ""), window, scope,
+                Text(", ".join(h.event_id for h in hits) or "nothing detected",
+                     style="" if hits else "yellow"),
+            )
+        engine.add_row(supplied)
+
     if context.links:
         engine.add_row("")
         engine.add_row(Text("cross-source links — each one required a declared DAG edge",
@@ -328,7 +398,7 @@ def render_console(
             acts.add_column(col, overflow="fold")
         for act in narrative.actions:
             acts.add_row(act.lever, act.owner, act.action, act.expected_impact,
-                         f"{act.confidence:.2f}",
+                         _confidence(act.confidence),
                          Text(", ".join(act.evidence_ids) or "—", style="dim"))
         body.add_row(acts)
 

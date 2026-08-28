@@ -56,7 +56,7 @@ def link_events(
             continue
 
         for scm in scm_events:
-            shared = _shared_entity(sales.entity, scm.entity)
+            shared = shared_entity(sales.entity, scm.entity)
             if shared is None:
                 continue
 
@@ -66,7 +66,10 @@ def link_events(
             if not licensed:
                 continue
 
-            overlap, lag = _window_relation(sales, scm)
+            overlap, lag = window_relation(
+                (sales.window_start, sales.window_end),
+                (scm.window_start, scm.window_end),
+            )
             if lag > lag_tolerance_days:
                 continue
 
@@ -141,7 +144,7 @@ def _moved_supply_nodes(
     return nodes
 
 
-def _shared_entity(a: dict[str, str], b: dict[str, str]) -> dict[str, str] | None:
+def shared_entity(a: dict[str, str], b: dict[str, str]) -> dict[str, str] | None:
     """The slice both events sit in, or None if they contradict.
 
     Two events that share no dimension at all are still comparable -- a system-wide
@@ -157,10 +160,17 @@ def _shared_entity(a: dict[str, str], b: dict[str, str]) -> dict[str, str] | Non
     return shared
 
 
-def _window_relation(sales: EventWindow, scm: EventWindow) -> tuple[int, int]:
-    """(overlap in days, lag in days). Lag is 0 when the windows overlap at all."""
-    s0, s1 = _as_date(sales.window_start), _as_date(sales.window_end)
-    c0, c1 = _as_date(scm.window_start), _as_date(scm.window_end)
+def window_relation(a: tuple, b: tuple) -> tuple[int, int]:
+    """(overlap in days, lag in days) between two windows. Lag is 0 when they overlap.
+
+    Takes bare `(start, end)` pairs rather than two `EventWindow`s so that
+    `exogenous.py` can ask the same question of a window the user merely
+    described. Two implementations of "do these windows relate" would drift, and
+    the day they did, a link and a context alignment would disagree about the
+    same two dates.
+    """
+    s0, s1 = as_date(a[0]), as_date(a[1])
+    c0, c1 = as_date(b[0]), as_date(b[1])
     overlap = (min(s1, c1) - max(s0, c0)).days + 1
     if overlap > 0:
         return overlap, 0
@@ -169,7 +179,7 @@ def _window_relation(sales: EventWindow, scm: EventWindow) -> tuple[int, int]:
     return 0, int(gap)
 
 
-def _as_date(value) -> dt.date:
+def as_date(value) -> dt.date:
     return value if isinstance(value, dt.date) else dt.date.fromisoformat(str(value))
 
 

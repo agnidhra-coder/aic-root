@@ -7,7 +7,7 @@ by it.
 
     ingest -> plan -> validate -+-> clarify (END)
                                 +-> run -+-> no_findings (END)
-                                         +-> link -> facts -> narrate -> verify
+                                         +-> link -> context -> facts -> narrate -> verify
     verify -+-> narrate   (one repair pass)
             +-> fallback  (deterministic template)
             +-> report (END)
@@ -36,6 +36,7 @@ from kpi_engine.tenancy import CompanyPaths, company_config, open_company
 from kpi_agent import facts as facts_mod
 from kpi_agent.catalog import build_catalog
 from kpi_agent import intent as intent_mod
+from kpi_agent import exogenous as exogenous_mod
 from kpi_agent import linking, narrate as narrate_mod, render, verify as verify_mod
 from kpi_agent.llm import ENGINE, MODEL, LlmUnavailable, Usage
 from kpi_agent.models import GroundedContext
@@ -167,6 +168,7 @@ def validate_intent(state: AgentState) -> dict[str, Any]:
         return {
             "clarification": proposed.clarification_needed,
             "intent_problems": [],
+            "survey": not proposed.kpis,
         }
 
     resolved, problems = intent_mod.validate_intent(
@@ -188,13 +190,41 @@ def validate_intent(state: AgentState) -> dict[str, Any]:
                 + " ".join(problems)
             ),
             "intent_problems": problems,
+            "survey": not (proposed.kpis if proposed else []),
         }
     for problem in problems:
         log.info("%s %s", ENGINE, problem)
     log.info("%s resolved: %s at %s grain%s",
              ENGINE, ", ".join(resolved.kpis) or "every KPI", resolved.time_grain,
              " by " + ", ".join(resolved.entity_keys) if resolved.entity_keys else " at total level")
-    return {"intent": resolved, "intent_problems": problems, "clarification": None}
+    # Survey mode is read off the resolved plan rather than asked of the model.
+    # An empty KPI list already means "every KPI" in `models.py`, `intent.py` and
+    # `run_pipelines` alike, so a question that named none is a sweep by
+    # construction. Deriving it keeps one fact in one place.
+    #
+    # Covering every available KPI counts too, and has to. Asked "how are we
+    # doing?", the planner is as likely to enumerate the catalogue as to leave
+    # the field empty -- those are the same instruction written two ways, and
+    # reading only the empty one makes the mode depend on the model's phrasing.
+    # That is precisely the fragility deriving it was meant to remove: the run
+    # that found this returned "no material movement" over a series whose margin
+    # had fallen 76% end to end.
+    available = {
+        k.name
+        for spec, contract, _ in trimmed
+        if spec.source_id in resolved.sources
+        for k in contract.kpis
+    }
+    survey = not resolved.kpis or bool(available and set(resolved.kpis) >= available)
+    if survey:
+        log.info("%s survey mode: every declared KPI, with descriptive findings "
+                 "reported alongside whatever the detector flags", ENGINE)
+    return {
+        "intent": resolved,
+        "intent_problems": problems,
+        "clarification": None,
+        "survey": survey,
+    }
 
 
 def run_pipelines(state: AgentState) -> dict[str, Any]:
@@ -289,6 +319,26 @@ def link_sources(state: AgentState) -> dict[str, Any]:
     return {"links": links}
 
 
+def align_context(state: AgentState) -> dict[str, Any]:
+    """Place whatever the user asserted against whatever the engine detected.
+
+    Deliberately its own node rather than a step inside `assemble_facts`. What it
+    produces is evidence of a different kind -- unmeasured, unlicensed, the user's
+    word -- and giving it a seam of its own means a reader of the graph can see
+    that it never touches attribution, and a client watching the stream is told
+    what happened to their hypothesis before the narrative is written.
+    """
+    resolved = state.get("intent")
+    factors = list(resolved.exogenous) if resolved else []
+    if not factors:
+        return {"context_alignments": [], "unaligned_factors": []}
+
+    alignments, unaligned = exogenous_mod.align_factors(factors, state.get("results") or {})
+    log.info("%s %d context factor(s) supplied: %d aligned to a detected event, "
+             "%d could not be placed", ENGINE, len(factors), len(alignments), len(unaligned))
+    return {"context_alignments": alignments, "unaligned_factors": unaligned}
+
+
 def assemble_facts(state: AgentState) -> dict[str, Any]:
     cfg = state["config"]
     paths: CompanyPaths = cfg["paths"]
@@ -315,6 +365,9 @@ def assemble_facts(state: AgentState) -> dict[str, Any]:
         sales_bundles=sales_bundles,
         scm_bundles=secondary_bundles,
         links=state.get("links", []),
+        alignments=state.get("context_alignments", []),
+        unaligned_factors=state.get("unaligned_factors", []),
+        survey=bool(state.get("survey")),
         graph=graph,
         freshness=[r.freshness for r in results.values()],
         series_profiles=series,
@@ -439,18 +492,22 @@ def no_findings(state: AgentState) -> dict[str, Any]:
     )
 
     if results:
-        body += "\n| Source | KPIs | Periods | Flags | Events | Explained |\n"
-        body += "|---|---|---|---|---|---|\n"
+        body += "\n| Source | KPIs | Periods | Flags | Events | Explained | Trending |\n"
+        body += "|---|---|---|---|---|---|---|\n"
         for source_id, result in results.items():
             body += (
                 f"| {source_id} | {len(result.panel.kpi_names())} | "
                 f"{result.panel.values['period'].nunique()} | {len(result.flags)} | "
-                f"{len(result.events)} | {len(result.bundles)} |\n"
+                f"{len(result.events)} | {len(result.bundles)} | "
+                f"{facts_mod.count_trending(result.series_profiles)} |\n"
             )
         body += (
             "\nFlags without events means movements were detected but none carried "
             "enough corroboration to become an event; events without explanations "
-            "means attribution was attempted and abstained.\n"
+            "means attribution was attempted and abstained. Trending counts series "
+            "whose underlying level is moving without any single period being "
+            "anomalous -- zero there means the period really was quiet, rather "
+            "than merely uneventful.\n"
         )
 
     if resolved:
@@ -577,9 +634,28 @@ def _after_validate(state: AgentState) -> str:
 
 
 def _after_run(state: AgentState) -> str:
+    """Where an empty detection goes.
+
+    A survey with nothing detected is not the same outcome as a survey with
+    nothing to say. `eda/` has already characterised every series in the run --
+    trend, seasonality, phases -- and until now that was computed, written to
+    disk, and shown to nobody. When the question named no KPI and the detector
+    flagged nothing material, those descriptions *are* the answer, so the run
+    continues down the ordinary path. `link_sources` and `align_context` are
+    both no-ops with no bundles, which is why the path can be reused rather
+    than branched around.
+
+    `no_findings` still exists, for the case it was written for: a slice where
+    nothing moved and nothing is trending either.
+    """
     results = state.get("results") or {}
-    has_bundles = any(r.bundles for r in results.values())
-    return "link_sources" if has_bundles else "no_findings"
+    if any(r.bundles for r in results.values()):
+        return "link_sources"
+    if state.get("survey") and facts_mod.has_notable_trends(results):
+        log.info("%s no event cleared the thresholds, but the survey has "
+                 "descriptive findings to report", ENGINE)
+        return "link_sources"
+    return "no_findings"
 
 
 def _after_verify(state: AgentState) -> str:
@@ -608,6 +684,7 @@ def build_graph():
     g.add_node("validate_intent", validate_intent)
     g.add_node("run_pipelines", run_pipelines)
     g.add_node("link_sources", link_sources)
+    g.add_node("align_context", align_context)
     g.add_node("assemble_facts", assemble_facts)
     g.add_node("narrate", narrate)
     g.add_node("verify", verify_narrative)
@@ -623,7 +700,8 @@ def build_graph():
                             {"clarify": "clarify", "run_pipelines": "run_pipelines"})
     g.add_conditional_edges("run_pipelines", _after_run,
                             {"link_sources": "link_sources", "no_findings": "no_findings"})
-    g.add_edge("link_sources", "assemble_facts")
+    g.add_edge("link_sources", "align_context")
+    g.add_edge("align_context", "assemble_facts")
     g.add_edge("assemble_facts", "narrate")
     g.add_edge("narrate", "verify")
     g.add_conditional_edges("verify", _after_verify,

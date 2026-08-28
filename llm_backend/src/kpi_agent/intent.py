@@ -24,7 +24,7 @@ from kpi_engine.contracts.configs import KpiContract, SourceSpec
 from kpi_engine.contracts.payloads import DataProfile
 
 from kpi_agent.llm import MODEL, LlmUnavailable, Usage, unavailable
-from kpi_agent.models import AnalysisIntent
+from kpi_agent.models import AnalysisIntent, ExogenousFactor
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,18 @@ which is the data's own clock and may differ from today's date.
 - Set clarification_needed ONLY when the request genuinely cannot be resolved against \
 the catalog -- an unknown metric, an ambiguous entity, a period outside coverage. A \
 vague-but-answerable question ("what needs attention?") is not a case for \
-clarification: run everything at a sensible grain.
+clarification: run everything at a sensible grain. Leave `kpis` EMPTY for such a \
+question rather than listing every KPI in the catalog -- empty is a positive \
+instruction meaning "all of them", and it is what puts the run in survey mode, where \
+the descriptive findings are reported alongside whatever the detector flags.
+- The question may assert something the data does not contain: weather, a strike, a \
+competitor's promotion, a public holiday, a campaign nobody logged. Record each as one \
+`exogenous` entry. Transcribe what was said and invent nothing around it -- give dates \
+only if dates were given, and name an entity only when it is a catalog entity column \
+and one of its values. A vague mention ("the weather was bad") is still worth recording \
+with null dates. This is a hypothesis for the reader to weigh, not a finding: it must \
+not change which KPIs, which grain, which slice or which period you choose, and the \
+engine will never treat it as a cause.
 """
 
 
@@ -138,7 +149,11 @@ def default_intent(
         sources=[spec.source_id for spec, _, _ in sources],
         persona=persona,  # type: ignore[arg-type]
         question_restated=question,
-        reasoning="No model available; running a broad sweep at the default grain.",
+        reasoning=(
+            "No model available; running a broad sweep at the default grain. Any "
+            "context stated in the question was not parsed, because parsing it is "
+            "the one thing here that needs a model."
+        ),
     )
 
 
@@ -249,6 +264,12 @@ def validate_intent(
         forced="time_grain" in forced,
     )
 
+    # The user's own context, checked on the same terms as everything else and
+    # never allowed to narrow the analysis. A stated window is not a report
+    # window: filtering to the heatwave would hide the alternative explanations
+    # the reader needs in order to judge the heatwave.
+    factors = _resolve_exogenous(intent.exogenous, all_entity_cols, all_kpis, problems)
+
     resolved = intent.model_copy(
         update={
             "kpis": kept_kpis,
@@ -257,9 +278,62 @@ def validate_intent(
             "time_grain": grain,
             "date_start": str(start) if start else None,
             "date_end": str(end) if end else None,
+            "exogenous": factors,
         }
     )
     return resolved, problems
+
+
+def _resolve_exogenous(
+    factors: list[ExogenousFactor],
+    entity_columns: set[str],
+    kpi_names: set[str],
+    problems: list[str],
+) -> list[ExogenousFactor]:
+    """Drop what does not resolve, keep what does, and never reject the run over it.
+
+    A factor is the user's word, not a request, so an unresolvable part of one is
+    a reason to narrow the claim rather than to stop and ask. The one thing that
+    must not happen is silence: every clearance is recorded, because a factor the
+    reader believes was taken into account and was not is worse than one plainly
+    refused.
+
+    `entity_value` is deliberately *not* checked here -- nothing in a
+    `DataProfile` carries a column's distinct values, and inventing a second
+    source of truth for them would be worse than the alternative. A value the
+    data does not hold simply aligns to no event, and is reported as unaligned.
+    """
+    resolved: list[ExogenousFactor] = []
+    for factor in factors:
+        if not factor.label.strip() and not factor.detail.strip():
+            continue
+
+        update: dict[str, object] = {}
+
+        if factor.entity_key and factor.entity_key not in entity_columns:
+            problems.append(
+                f"Context '{factor.label}' was scoped to '{factor.entity_key}', which "
+                f"is not a dimension in the data; it is kept, unscoped. "
+                f"Available: {', '.join(sorted(entity_columns))}."
+            )
+            update["entity_key"] = None
+            update["entity_value"] = None
+
+        dropped_kpis = [k for k in factor.affects_kpis if k not in kpi_names]
+        if dropped_kpis:
+            problems.append(
+                f"Context '{factor.label}' named unknown KPI(s), ignored: "
+                f"{', '.join(dropped_kpis)}."
+            )
+            update["affects_kpis"] = [k for k in factor.affects_kpis if k in kpi_names]
+
+        for field in ("date_start", "date_end"):
+            raw = getattr(factor, field)
+            if raw and _parse_date(raw, f"Context '{factor.label}' {field}", problems) is None:
+                update[field] = None
+
+        resolved.append(factor.model_copy(update=update) if update else factor)
+    return resolved
 
 
 # Days per period, for turning a coverage span into a period count. Approximate for

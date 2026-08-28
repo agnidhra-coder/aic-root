@@ -405,6 +405,33 @@ pass is allowed, with the violations fed back. A second failure renders the same
 report from a deterministic template. **The worst case is a terse true report, not
 a fluent false one.**
 
+**What the user knows, the engine can weigh without pretending to measure it.**
+A question may assert something no column carries — a heatwave, a strike, a
+campaign nobody logged. The planner transcribes each into an `ExogenousFactor`,
+inventing nothing around it, and `exogenous.align_factors` places it against the
+detected windows by date and entity arithmetic. What comes back is a
+`ContextAlignment`, which says only that two things sit on top of each other in
+time. It is deliberately *not* a `CrossSourceLink`: a link needs a declared path
+through the causal graph before two movements may be connected, and nothing
+licenses an alignment at all. So it is offered as a coincidence worth weighing and
+never as a cause — the verifier rejects any `why` claim resting on the user's word
+alone, and their own figures are quotable only in a sentence that attributes them
+to them. A factor that lines up with nothing is *said* to line up with nothing,
+because a hypothesis silently dropped reads as one considered and dismissed.
+
+**A question that names nothing gets a survey, not a shrug.** With no KPI named —
+or every KPI named, which is the same instruction phrased differently — the run
+sweeps the whole contract and reports what the EDA stage found: Theil-Sen trends,
+seasonality, phase breaks. That stage has always computed these and written them
+to `series_profiles.json`; until now nothing read them. It matters most where
+detection is silent by design. A margin falling 1.2% a week for two years contains
+no anomalous week, so the old path reported the period as quiet while the margin
+fell 76% end to end. The caveat travels with the finding: at `alpha=0.05` roughly
+one series in twenty-five is called trending by chance, and the stage declines to
+correct for that on purpose, so a single trend call is a hypothesis rather than a
+result. A recommendation resting on a trend reports its confidence as *unmeasured*
+rather than as zero.
+
 `RunManifest`'s `llm_calls` / `llm_tokens` / `llm_cost_usd` fields no longer sit at
 zero — the report states the split, and the deterministic side was already measured.
 Where a model's rates are not known the cost is reported as *not priced* rather
@@ -416,7 +443,7 @@ accounting; `intent.py` and `narrate.py` call
 `.with_structured_output(schema, method="json_schema").invoke(...)` on it
 themselves. There is no client class wrapping LangChain, so there is no second API
 to keep in step with it — and a stub chat model is all the test suite needs, which
-is how all 43 agent tests run with no API key. `json_schema` sends the strict
+is how all 72 agent tests run with no API key. `json_schema` sends the strict
 Pydantic schema itself, including the `additionalProperties: false` that
 `extra="forbid"` emits, and the reply is validated against that same model on the
 way back: a fabricated field is refused twice over.
@@ -448,7 +475,7 @@ says so.
 ## Tests
 
 ```bash
-uv run pytest tests/ -q      # 269 tests, no API key required
+uv run pytest tests/ -q      # 285 tests, no API key required
 ```
 
 They pin the properties that matter rather than golden outputs: the evaluator

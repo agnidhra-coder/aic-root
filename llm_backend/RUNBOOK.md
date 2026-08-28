@@ -360,6 +360,62 @@ and the persona config. Writes `user/<company>/outputs/<run_id>/agent_report.md`
 `agent_report.json`, plus a full pipeline run per source under
 `user/<company>/outputs/<run_id>/<source_id>/`.
 
+### Telling it something the data does not contain
+
+Weather, a strike, a campaign nobody logged — state it in the question. The
+planner transcribes each into an `exogenous` entry, the validator checks the
+dates and dimensions it names, and `exogenous.align_factors` places it against
+the detected windows.
+
+```bash
+uv run python -m kpi_engine.cli.ask --company acme-retail --persona analyst \
+  --time-grain week --entity-keys Region \
+  "Why did CAC rise and ROAS fall in the West in late March 2026? We ran an \
+unlogged billboard campaign in the West from 2026-03-16 to 2026-03-31, and it \
+was unusually rainy in January 2025."
+```
+
+The report grows a **Context you provided** table: which factor, as stated, over
+which window, and what it lines up with. What to look for:
+
+- A factor that overlaps an event appears in `needs_attention`, marked
+  unverified. It does **not** appear in `Why`, and it does not displace the exact
+  attribution — the billboard above lands beside `Sales Marketing Expenses:
+  +4.867 (+49.5% of the move)`, not instead of it.
+- A factor that lines up with nothing says so, in the table and in
+  **Not answered**. That is the point: a hypothesis silently dropped reads as one
+  considered and dismissed.
+- Overlap is not a licence. Unlike a cross-source link, nothing in the causal
+  graph permits the connection, so the verifier rejects any `why` claim resting
+  on the user's word alone (`unlicensed_context_cause`).
+- `--no-llm` cannot parse free text and says so in the plan's `reasoning`. The
+  KPI question is still answered in full.
+
+### Asking nothing in particular
+
+Name no KPI and the run sweeps every declared one, and reports what `eda/`
+found — trend, seasonality, phase breaks — alongside whatever the detector
+flagged.
+
+```bash
+uv run python -m kpi_engine.cli.ask --company acme-retail "how are we doing?" --persona exec
+```
+
+The stage log says `survey mode: every declared KPI` when this is in effect. Two
+things differ from a targeted question:
+
+- `trend` facts are emitted, ranked by end-to-end change. They are descriptive
+  and carry the alpha caveat — at `alpha=0.05` about one series in twenty-five is
+  called trending by chance, and `eda/` applies no correction on purpose.
+- A survey that detects nothing no longer stops at `no_findings`. If a series is
+  drifting, that is the answer: a margin falling 1.2% a week for two years has no
+  anomalous week in it, and the old path reported the period as quiet. When
+  nothing moved *and* nothing is trending, `no_findings` still fires — its
+  `Trending` column is what tells the two apart.
+- A recommendation resting on a trend rather than an attributed event shows `—`
+  for confidence. There is no `EvidenceBundle` behind it and so no score, and
+  `0.00` would read as a measured lack of confidence rather than an absent one.
+
 ---
 
 ## Serve it — `python -m kpi_api`
@@ -448,14 +504,14 @@ easy way to have it arrive as a load filter that starves the baseline instead.
 | `log` | one stage-log line: `level`, `source` (`engine` \| `model`), `message`. The same commentary the terminal prints. Suppressed by `"logs": false`. |
 | `ingest` | per-source row and column counts, `coverage_days`, `min_train_periods`. |
 | `plan` | the `AnalysisIntent`, twice: `stage: "proposed"` (model call #1) then `"resolved"` (after validation), with `problems[]` for anything the validator adjusted. |
-| `engine` | `per_source[]` counts (KPIs, flags, events, explained), twice: `stage: "pipelines"` then `"links"`. |
-| `evidence` | the whole fact table, plus events, links, abstentions, freshness, caveats and levers. |
+| `engine` | `per_source[]` counts (KPIs, flags, events, explained), three times: `stage: "pipelines"`, then `"links"`, then `"context"`. The last carries `context_alignments[]` and `unaligned_factors[]` — what became of the context stated in the question. Alignments sit in their own field and are never folded into `links`: a link is licensed by a declared DAG path and an alignment by nothing at all, so a client that renders them alike asserts a cause the engine refused to. |
+| `evidence` | the whole fact table, plus events, links, `exogenous[]` (everything the user asserted, aligned or not), `alignments[]`, abstentions, freshness, caveats and levers. |
 | `narrative` | the `Narrative`, with `attempt`, `used_fallback`, `fallback_reason`. Fires more than once when the repair loop runs. |
 | `verification` | `passed`, `violations[]`, counts, with the matching `attempt`. |
 | `telemetry` | the deterministic-vs-model split: stages, ms, calls, tokens, cost. |
 | `report` | `report_markdown`, `report_path`, `report_json_path`. |
 | `clarification` | terminal. The question could not be resolved; nothing was computed. |
-| `no_findings` | terminal. What was searched, and what each source produced. |
+| `no_findings` | terminal. What was searched, and what each source produced — including `trending`, a per-source count of series whose level is moving without any single period being anomalous. Zero there is the difference between a genuinely quiet period and a merely uneventful one. |
 | `error` | terminal. Yielded rather than raised, so a stream that already delivered a plan says what went wrong. |
 | `done` | `outcome` (`report` \| `clarification` \| `no_findings` \| `error`), `duration_ms`. |
 

@@ -35,7 +35,7 @@ criteria.
 uv sync --extra dev --extra agent --extra cli --extra api   # setup (CPython 3.11, editable install)
 # `uv sync` is exact -- it uninstalls every extra you do not name. Naming a
 # subset later (`uv sync --extra api`) is what silently removes rich and pytest.
-uv run pytest tests/ -q                          # 269 tests
+uv run pytest tests/ -q                          # 285 tests
 uv run pytest tests/test_causal.py::test_shapley_efficiency_axiom -q   # single test
 
 # every command names a company. `acme-retail` is the demo tenant.
@@ -71,6 +71,14 @@ uv run python -m kpi_engine.cli.confirm_kpis --company orbit-grocers \
 uv run python -m kpi_engine.cli.ask --company $C "why did margin fall in the West?" --persona ops
 uv run python -m kpi_engine.cli.ask --company $C "why did ROAS drop?" --model gemini-3.7-flash
 uv run python -m kpi_engine.cli.ask --company $C "what needs attention?" --persona exec --no-llm
+# context the data does not contain goes in the question; the planner transcribes it,
+# the engine places it against the detected windows, and it never becomes a cause
+uv run python -m kpi_engine.cli.ask --company $C --persona analyst \
+  "Why did CAC rise in the West in late March 2026? We ran an unlogged billboard \
+campaign in the West from 2026-03-16 to 2026-03-31."
+# name no KPI and the run sweeps every declared one, reporting eda's trend and
+# seasonality findings alongside whatever the detector flags -- or instead of it
+uv run python -m kpi_engine.cli.ask --company $C "how are we doing?" --persona exec
 # force the configuration rather than trusting the planner (see README for the two demo questions)
 uv run python -m kpi_engine.cli.ask --company $C "..." --persona analyst \
     --time-grain week --entity-keys Supplier
@@ -163,15 +171,25 @@ See `RUNBOOK.md` for what each stage reads, writes, and what to look for.
   `test_in_process_pipeline_reproduces_the_cli_chain`.
 
 `src/kpi_agent/` — the LangGraph layer:
-`ingest → plan → validate → run → link → facts → narrate → verify → report`.
+`ingest → plan → validate → run → link → context → facts → narrate → verify → report`.
 - `catalog.py` — metadata-only view of the sources; what the planner may see. A
   pure function over already-loaded objects: it touches the filesystem zero times,
   so tenancy never reaches it.
 - `intent.py` — LLM call #1, plus the deterministic validator that resolves or
   rejects what it proposed.
 - `linking.py` — cross-source event alignment, licensed by the DAG.
+- `exogenous.py` — the user's own context, placed against the detected events by
+  date and entity arithmetic and nothing else. Reuses `linking`'s
+  `window_relation` rather than copying it. What it emits is a `ContextAlignment`,
+  which is deliberately *not* a `CrossSourceLink`: a link needs a declared DAG
+  path, an alignment needs nothing, and the difference is what stops a
+  coincidence being read as a cause.
 - `facts.py` — flattens bundles into a numbered fact table; the narrator's
-  entire context.
+  entire context. Two kinds carry no `EvidenceBundle` behind them: `context`
+  (what the user asserted) and `trend` (what `eda/` described). Both are gated on
+  the persona's `include_facts` like every other kind, and `Fact.kind` is an
+  unconstrained `str`, so a kind missing from a `personas.yaml` is dropped in
+  silence — all seven files have to be edited together.
 - `narrate.py` — LLM call #2, plus the template fallback.
 - `llm.py` — the model's configuration, `build_llm`, token accounting, and the
   wording of a failed call. It holds no call site: `intent.py` and `narrate.py`
@@ -298,6 +316,8 @@ category`, a superset of the SCM config's.
 | `plan` | nothing user-facing; the audit trail |
 | `engine` | one `KpiCase` per `EventWindow`; `segment` from `EventWindow.entity` |
 | `evidence` | the bulk: `movement` facts → `detect.headline`/`value`/`delta`; `method`/`confidence`/`quality` → `detect.statSignificance`; `Contribution` rows → `EvidenceItem[]`, with `exact` distinguishing algebra from estimate; `links` → `EvidenceItem{kind:"exogenous"}`; `abstentions` → `tier: "UNEXPLAINED"` |
+| `engine` stage `context` | `context_alignments` and `unaligned_factors` — what became of the context the user stated. Its own field, never folded into `links`: a link is licensed by a declared DAG path and an alignment by nothing, and a UI that renders them alike asserts a cause the engine refused to |
+| `trend` facts, `evidence.exogenous` | **nothing** — `AnalysisResult` has no slot for a descriptive finding or a user hypothesis either, so both join verification and the report on the list of things extending the TypeScript interface has to cover |
 | `EvidenceBundle.confidence` | `contributionTotal`, hence `tier`. The README's ~70% bar **is** `DetectionSpec.confidence_threshold` (default `0.70`) — keep them equal deliberately, not by coincidence |
 | `narrative` | `narratives.operational` / `.strategic`, from the `ops` and `exec` personas — which means **two narrate calls or two runs**, and nothing does that today |
 | `lever` facts, `Narrative.actions` | `ActionPlan{driver, lever, action, impact, owner, confidence, monitor}` |
@@ -306,9 +326,13 @@ category`, a superset of the SCM config's.
 **Still missing, plainly:** no adapter, in either language; no SSE client in
 `server/` (its `run()` is synchronous-shaped, so `/ask/sync` is the shortcut if
 streaming is deferred); no company entity in the SQL schema; and `AnalysisResult`
-has no field for verification, abstention rationale, or the report — the three
-things this engine produces that the simulated one cannot. Extending the
-TypeScript interface is part of the integration, not an afterthought.
+has no field for verification, abstention rationale, the report, the user's stated
+context, or a descriptive trend — the five things this engine produces that the
+simulated one cannot. Extending the TypeScript interface is part of the
+integration, not an afterthought. The last two matter most for the wizard flow:
+a user who types "we ran a campaign that week" into the question expects to see
+what became of it, and a tenant whose data drifts rather than spikes has no
+`KpiCase` at all until a descriptive finding can be carried.
 
 ## Invariants — do not break these
 
@@ -426,6 +450,37 @@ TypeScript interface is part of the integration, not an afterthought.
 - **The LLM never produces a number.** It chooses the configuration and writes the
   prose. Every quantity in a report comes from an `EvidenceBundle` by way of the
   fact table in `kpi_agent/facts.py`.
+- **A user's context is a hypothesis, never evidence.** An `ExogenousFactor` is
+  transcribed from the question, not measured. `exogenous.align_factors` places it
+  against an event by date and entity arithmetic alone — a coincidence in time, and
+  not the causal licence a `CrossSourceLink` needs a declared DAG path to earn. It
+  never becomes a `Contribution`, never carries a share, and may never be the sole
+  evidence for a `why` claim: `verify`'s `unlicensed_context_cause` is the
+  enforcement, and the prompt rule is only the request. Its figures are quotable
+  *only* in a sentence citing the fact that carries them — `_fact_values` excludes
+  `context` facts and `_claim_values` readmits them per claim — so echoing a user's
+  number back cannot ground an unrelated one somewhere else in the report.
+- **A trend is described, never detected.** `eda/` emits no `Flag` and decides
+  nothing; surfacing its output as `trend` facts does not change that. A trend is
+  background for a survey, or the whole answer where nothing cleared the
+  thresholds, and never a cause. Trends are emitted only when the run is a survey
+  or produced no bundles: asked "why did CAC rise in the West", a reader does not
+  want to hear that Fill Rate has been drifting, and `_CAP_PRIORITY` keeps them
+  below every attributed fact so they can fill a budget but never displace
+  evidence. The alpha caveat ships with it, counted after
+  the persona cap so it never cites trends the reader cannot see: at `alpha=0.05`
+  roughly one series in twenty-five is called trending by chance, and `eda/`
+  declines to correct for it on purpose. A fact's `value` is rounded to the
+  precision its `display` states, or a narrator quotes `-76.80413627059869%` and
+  is technically grounded.
+- **Survey mode is derived from the plan, not asked of the model.** A question
+  naming no KPI is a sweep, and so is one naming every KPI the resolved sources
+  carry — those are the same instruction written two ways, and reading only the
+  empty list makes the mode depend on the planner's phrasing. A survey that
+  detects nothing does not dead-end at `no_findings` any more: if `eda/` has
+  something to describe, the run continues down the ordinary path, because
+  "nothing was anomalous" and "nothing is happening" are different answers.
+  `no_findings` keeps a `Trending` column so the two stay distinguishable.
 - **The catalogue is the whole KPI vocabulary, and the model never writes a
   formula.** `templates/reference/kpi_catalog.yaml` holds every expression, unit,
   direction and threshold, transcribed by hand from `kpi_list.csv` and checked
@@ -577,7 +632,14 @@ All paths below are under `user/acme-retail/`.
   `max_facts`, `restricted_entitlements`, `brief`), extend the `Persona` literal in
   `kpi_agent/models.py`, and add it to the parametrised template test. Entitlement
   is enforced by dropping facts in `facts.py`, never by asking the narrator to be
-  discreet.
+  discreet. `include_facts` must name every kind the persona should see, `context`
+  and `trend` included — the field is not a denylist and a kind left out is dropped
+  without an error.
+- **A fact kind**: emit it in `facts.py`, place it in `_CAP_PRIORITY`, handle it in
+  `narrate.fallback_narrative` (the floor has to keep passing its own verifier),
+  and add it to `include_facts` in **all seven** `personas.yaml` — three under
+  `user/` and four under `templates/company/`. Nothing fails loudly if you miss
+  one; the kind is simply never seen.
 - **A verifier rule**: add a `Violation` code in `models.py` and the check in
   `verify.py`. The repair message is what the narrator sees on retry, so it must
   say what to do, not just what is wrong.

@@ -91,8 +91,28 @@ def verify(
                                f"to F{len(context.facts)}.",
                     ))
 
-            numbers_checked += _check_numbers(claim.text, where, values, violations)
+            numbers_checked += _check_numbers(
+                claim.text, where, values, violations,
+                extra_values=_claim_values(claim.evidence_ids, context),
+            )
             _check_direction(claim, where, context, violations)
+
+            # A user's hypothesis is not evidence for itself. Overlapping in time
+            # with an event licenses nothing -- unlike a cross-source link, which
+            # needs a declared path through the graph before two movements may be
+            # connected. So a cause may rest on measured evidence, or on measured
+            # evidence *and* the user's context, but never on the context alone.
+            if section == "why" and claim.evidence_ids:
+                cited = [context.fact(i) for i in claim.evidence_ids]
+                known = [f for f in cited if f is not None]
+                if known and all(f.kind == "context" for f in known):
+                    violations.append(Violation(
+                        code="unlicensed_context_cause", where=where,
+                        detail="This cause rests only on context the user supplied, "
+                               "which the engine did not measure and no causal path "
+                               "licenses. Cite the measured evidence it bears on as "
+                               "well, or move the sentence to needs_attention.",
+                    ))
 
             if section == "why" and _CAUSAL_LANGUAGE.search(claim.text):
                 for kpi in abstained_kpis:
@@ -142,7 +162,24 @@ def verify(
                     code="unknown_evidence_id", where=where,
                     detail=f"'{fid}' is not a fact in the table.",
                 ))
-        if not 0.0 <= action.confidence <= 1.0:
+        cited_confidence = [
+            f for f in (context.fact(i) for i in action.evidence_ids)
+            if f is not None and f.kind == "confidence" and f.value is not None
+        ]
+        if action.confidence is None:
+            # Null is the honest answer for a recommendation that rests on a
+            # description rather than a measured explanation -- a trend has no
+            # `EvidenceBundle` and therefore no score. It is not a way out of
+            # quoting one that exists: citing a confidence fact and then
+            # declining to state it is a dodge, not a caveat.
+            if cited_confidence:
+                violations.append(Violation(
+                    code="confidence_not_grounded", where=where,
+                    detail=f"This action cites a computed confidence score "
+                           f"({cited_confidence[0].display}) but leaves confidence "
+                           f"null. State the score it cites, or stop citing it.",
+                ))
+        elif not 0.0 <= action.confidence <= 1.0:
             violations.append(Violation(
                 code="confidence_not_grounded", where=where,
                 detail=f"Confidence {action.confidence} is outside 0-1.",
@@ -157,7 +194,10 @@ def verify(
                            f"confidence score. Available: "
                            f"{', '.join(f'{s:.2f}' for s in sorted(set(scores)))}.",
                 ))
-        numbers_checked += _check_numbers(action.expected_impact, where, values, violations)
+        numbers_checked += _check_numbers(
+            action.expected_impact, where, values, violations,
+            extra_values=_claim_values(action.evidence_ids, context),
+        )
 
     return VerificationResult(
         passed=not violations,
@@ -168,14 +208,23 @@ def verify(
 
 
 def _fact_values(context: GroundedContext) -> list[float]:
-    """Every number a narrator may legitimately quote.
+    """Every number the ENGINE computed, and that a narrator may quote anywhere.
 
     Both the fact's own `value` and any number embedded in its `display` string
     count: a display of "Cost Of Ads: +1,234 (61.4% of the move)" makes 61.4 a
     quotable number even though the fact's `value` is 1234.
+
+    `context` facts are deliberately excluded. They carry figures the *user*
+    asserted -- "42 degrees", "three days of rain" -- and folding those into one
+    flat pool would let a narrator ground an unrelated 42 anywhere in the report
+    on the strength of the user having typed it. They are readmitted per-claim by
+    `_claim_values`, so a user's number is quotable only in a sentence that cites
+    the fact carrying it, which is where it is attributed to them.
     """
     values: list[float] = []
     for fact in context.facts:
+        if fact.kind == "context":
+            continue
         if fact.value is not None:
             values.append(float(fact.value))
         values.extend(_extract(fact.display))
@@ -186,6 +235,21 @@ def _fact_values(context: GroundedContext) -> list[float]:
             values.append(float(entry["confidence"]))
     for link in context.links:
         values.extend([float(link.lag_days), float(link.overlap_days)])
+    return values
+
+
+def _claim_values(evidence_ids: list[str], context: GroundedContext) -> list[float]:
+    """The user-asserted numbers this particular sentence has earned the right to quote."""
+    values: list[float] = []
+    for fid in evidence_ids:
+        fact = context.fact(fid)
+        if fact is None or fact.kind != "context":
+            continue
+        if fact.value is not None:
+            values.append(float(fact.value))
+        values.extend(_extract(fact.display))
+        if fact.note:
+            values.extend(_extract(fact.note))
     return values
 
 
@@ -200,9 +264,15 @@ def _extract(text: str) -> list[float]:
 
 
 def _check_numbers(
-    text: str, where: str, values: list[float], violations: list[Violation]
+    text: str,
+    where: str,
+    values: list[float],
+    violations: list[Violation],
+    extra_values: list[float] | None = None,
 ) -> int:
     checked = 0
+    if extra_values:
+        values = [*values, *extra_values]
     for token in _NUMBER.findall(text or ""):
         try:
             number = float(token.replace(",", ""))
@@ -239,11 +309,16 @@ def _check_direction(
     is unambiguously directional -- a sentence containing both "rose" and "fell"
     is describing two things, and guessing which one the fact belongs to would
     generate false violations.
+
+    `trend` counts here alongside `movement` and `contribution`: a trend fact's
+    value is a signed end-to-end change, so "X is climbing" over a falling series
+    is the same error in a descriptive sentence as in a causal one.
     """
     signs = {
         (f.value > 0) for f in (
             context.fact(i) for i in claim.evidence_ids
-        ) if f and f.kind in {"movement", "contribution"} and f.value not in (None, 0)
+        ) if f and f.kind in {"movement", "contribution", "trend"}
+        and f.value not in (None, 0)
     }
     if len(signs) != 1:
         return

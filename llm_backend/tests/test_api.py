@@ -430,3 +430,28 @@ def test_a_narrative_that_fails_verification_twice_streams_both_attempts(monkeyp
     payload = collapse(events)
     assert payload["verification"]["passed"]
     assert "87.3" not in payload["report"]["report_markdown"]
+
+
+@pytest.mark.slow
+def test_the_context_stage_reaches_the_wire_before_the_evidence(client):
+    """A client should learn what happened to the user's hypothesis as it happens.
+
+    It is a third `engine` stage rather than a new event name because it is the
+    same kind of thing the other two report -- deterministic work over the run's
+    results -- and because a new event name would be a wire change every client
+    has to learn for no gain.
+    """
+    events = _parse_sse(client.post(_url("/ask"), json=_body(run_id="pytest-api-ctx")).text)
+    stages = [d.get("stage") for n, d in events if n == "engine"]
+    assert stages == ["pipelines", "links", "context"]
+    assert [n for n, _ in events].index("evidence") > max(
+        i for i, (n, _) in enumerate(events) if n == "engine"
+    )
+
+    payload = collapse(events)
+    # An alignment is carried in its own field so a client cannot render one as a
+    # cross-source link: a link is licensed by a declared DAG path, an alignment
+    # by nothing at all.
+    assert "context_alignments" in payload["engine"]
+    assert payload["evidence"]["exogenous"] == []
+    assert payload["evidence"]["alignments"] == []

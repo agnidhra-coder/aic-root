@@ -5,6 +5,18 @@
 # change the numbers, and it does not license the narrator to reach for evidence a
 # persona is not entitled to see: entitlement is enforced by dropping the facts,
 # not by asking the model to be discreet.
+# `context` and `trend` are on every persona, deliberately.
+#
+# `context` is what the *user* said in the question -- a heatwave, a strike, a
+# campaign nobody logged. Dropping it for a persona would answer a question by
+# omitting the thing the reader asked about. It is never a cause: it carries no
+# causal licence, `verify.unlicensed_context_cause` refuses to let a cause rest
+# on it alone, and any figure inside it is quotable only in a sentence that
+# attributes it to the user.
+#
+# `trend` is the eda stage's description of what a series has been doing. It is
+# not a detection and nothing branches on it; it is background for an event, or
+# the whole answer for a survey where nothing cleared the thresholds.
 personas:
   analyst:
     label: Analyst
@@ -13,7 +25,8 @@ personas:
       whether each contribution is exact algebra or an estimate, give intervals,
       and do not round away precision. Assume familiarity with DiD, ITS, DML,
       Shapley and LMDI; do not explain them.
-    include_facts: [movement, contribution, method, confidence, quality, freshness, link, lever]
+    include_facts: [context, movement, contribution, method, confidence, quality,
+                    freshness, link, lever, trend]
     max_facts: 90
     include_sections: [what_happened, why, needs_attention, actions, uncertainty, abstained_from]
     restricted_entitlements: []
@@ -26,7 +39,7 @@ personas:
       decision in front of them. One number per sentence at most. Name the method
       only where it changes how much weight the finding deserves. No estimator
       jargon, no intervals in the body -- put the caveat in `uncertainty` instead.
-    include_facts: [movement, contribution, confidence, link, lever]
+    include_facts: [context, movement, contribution, confidence, link, lever, trend]
     max_facts: 30
     include_sections: [what_happened, needs_attention, actions, uncertainty]
     restricted_entitlements: []
@@ -39,7 +52,8 @@ personas:
       named owners, and what to watch afterwards. Supply-chain findings matter more
       here than financial framing. Be concrete about the slice affected -- which
       region, which category, which supplier.
-    include_facts: [movement, contribution, confidence, link, lever, quality, freshness]
+    include_facts: [context, movement, contribution, confidence, link, lever, quality,
+                    freshness, trend]
     max_facts: 60
     include_sections: [what_happened, why, needs_attention, actions, abstained_from]
     # Ops sees operational detail but not negotiated commercial terms; the facts

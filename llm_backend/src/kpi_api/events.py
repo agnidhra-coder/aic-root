@@ -19,7 +19,7 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
-from kpi_agent import render
+from kpi_agent import facts as facts_mod, render
 from kpi_agent.graph import stream_agent
 from kpi_agent.llm import DEFAULT_MODEL
 
@@ -110,6 +110,9 @@ def _events_for(node: str, state: dict, ctx: dict) -> Iterator[Event]:
     elif node == "link_sources":
         yield "engine", _engine(state, stage="links")
 
+    elif node == "align_context":
+        yield "engine", _engine(state, stage="context")
+
     elif node == "assemble_facts":
         yield "evidence", _evidence(state)
 
@@ -179,6 +182,15 @@ def _engine(state: dict, *, stage: str) -> dict:
         "stage": stage,
         "per_source": render.engine_summary(state.get("results")),
         "links": [link.model_dump(mode="json") for link in state.get("links", [])],
+        # An alignment is not a link and is kept in its own field so a client
+        # cannot render one as the other. A link is licensed by a declared path
+        # through the causal graph; this is the user's word plus a date overlap.
+        "context_alignments": [
+            a.model_dump(mode="json") for a in state.get("context_alignments", [])
+        ],
+        "unaligned_factors": [
+            f.model_dump(mode="json") for f in state.get("unaligned_factors", [])
+        ],
         "errors": state.get("errors", []),
     }
 
@@ -199,6 +211,8 @@ def _evidence(state: dict) -> dict:
         "facts": dumped["facts"],
         "events": dumped["events"],
         "links": dumped["links"],
+        "exogenous": dumped["exogenous"],
+        "alignments": dumped["alignments"],
         "abstentions": dumped["abstentions"],
         "abstention_summary": render.abstention_summary(context),
         "freshness": dumped["freshness"],
@@ -250,7 +264,14 @@ def _no_findings(state: dict) -> dict:
             "sources": list((state.get("results") or {}).keys()),
         },
         "intent": intent.model_dump(mode="json") if intent else None,
+        "survey": bool(state.get("survey")),
         "per_source": render.engine_summary(state.get("results")),
+        # Zero here is what separates a genuinely quiet period from a merely
+        # uneventful one: nothing moved *and* nothing is drifting either.
+        "trending": {
+            source_id: facts_mod.count_trending(result.series_profiles)
+            for source_id, result in (state.get("results") or {}).items()
+        },
         "errors": state.get("errors", []),
         "report_markdown": state.get("report_markdown", ""),
     }
