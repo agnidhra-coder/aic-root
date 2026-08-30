@@ -44,6 +44,7 @@ from kpi_agent.models import (
     Claim,
     ExogenousFactor,
     Fact,
+    GeneralRecommendation,
     GroundedContext,
     Narrative,
     VerificationResult,
@@ -220,6 +221,55 @@ def test_verifier_rejects_an_action_assigned_to_the_wrong_owner(context, graph):
     )])
     result = verify(bad, context, graph)
     assert any(v.code == "unknown_owner" for v in result.violations)
+
+
+def test_a_general_recommendation_may_speak_from_knowledge_but_not_from_numbers(
+    context, graph
+):
+    """The one place the model is allowed its own knowledge, and its one limit.
+
+    There is no external knowledge base per tenant, so this section exists to say
+    more than attribution measured. What it may not do is borrow the authority of
+    a measurement: a figure here would read as computed, and nothing computed it.
+    """
+    ok = _narrative(general_recommendations=[GeneralRecommendation(
+        related_kpi="CAC",
+        action="Review bid caps on the highest-spend campaigns before the next flight.",
+        rationale="Acquisition cost usually reacts to bid ceilings faster than to "
+                  "creative changes.",
+    )])
+    assert verify(ok, context, graph).passed
+
+    bad = _narrative(general_recommendations=[GeneralRecommendation(
+        related_kpi="CAC",
+        action="Cut paid media spend by 15% next quarter.",
+        rationale="That is the usual correction.",
+    )])
+    result = verify(bad, context, graph)
+    assert any(v.code == "ungrounded_number" for v in result.violations)
+
+
+def test_a_general_recommendation_must_be_about_a_kpi_this_run_looked_at(context, graph):
+    bad = _narrative(general_recommendations=[GeneralRecommendation(
+        related_kpi="Gross Merchandise Value",
+        action="Watch basket composition.",
+        rationale="It moves with promotional mix.",
+    )])
+    result = verify(bad, context, graph)
+    assert any(v.code == "unknown_kpi" for v in result.violations)
+
+
+def test_a_general_recommendation_cites_nothing_and_needs_no_citation(context, graph):
+    """It carries no `evidence_ids` field at all, so there is nothing to forget.
+
+    That is the structural half of the guarantee: an `Action` without citations is
+    a lapse, while this is declared uncited up front and rendered under a heading
+    that says so.
+    """
+    assert not hasattr(GeneralRecommendation, "evidence_ids")
+    rec = GeneralRecommendation(related_kpi="CAC", action="Review bid caps.",
+                                rationale="Standard practice.")
+    assert "evidence_ids" not in rec.model_dump()
 
 
 def test_verifier_rejects_an_invented_confidence(context, graph):
@@ -1122,6 +1172,45 @@ def test_the_console_view_does_not_replace_the_markdown_artefact(context):
     after = render_markdown(narrative, context, verification, telemetry)
     assert before == after
     assert before.startswith("# CAC rose in the West.")
+
+
+def test_a_general_recommendation_reaches_both_renderers_labelled_as_ungrounded(context):
+    """Both views must carry it, and both must say it was not measured.
+
+    A suggestion printed beside the attributed actions with no disclaimer is the
+    failure this section is shaped to avoid: it would read as a finding, and the
+    reader has no way to tell which half of the page the engine stands behind.
+    """
+    from kpi_agent.render import render_console, render_markdown
+
+    narrative = _narrative(general_recommendations=[GeneralRecommendation(
+        related_kpi="CAC",
+        action="Review bid caps before the next flight.",
+        rationale="Acquisition cost reacts to bid ceilings quickly.",
+    )])
+    verification = VerificationResult(passed=True, violations=[],
+                                      numbers_checked=2, claims_checked=2)
+    telemetry = {"model": "stub", "llm_calls": 2, "deterministic_stages": 1,
+                 "deterministic_ms": 1.0, "llm_tokens_in": 1, "llm_tokens_out": 1,
+                 "llm_cost_usd": None, "used_fallback": False, "fallback_reason": ""}
+
+    markdown = render_markdown(narrative, context, verification, telemetry)
+    assert "## Other suggestions" in markdown
+    assert "Review bid caps before the next flight." in markdown
+    assert "was measured" in markdown or "not measured" in markdown
+
+    console, buffer = _capture_console()
+    render_console(console, narrative=narrative, context=context,
+                   verification=verification, telemetry=telemetry)
+    printed = buffer.getvalue()
+    assert "OTHER SUGGESTIONS" in printed
+    assert "not measured" in printed
+
+    # And the section is absent entirely when the model offered nothing, rather
+    # than appearing as an empty heading.
+    assert "## Other suggestions" not in render_markdown(
+        _narrative(), context, verification, telemetry
+    )
 
 
 # --------------------------------------------------------------------------- #

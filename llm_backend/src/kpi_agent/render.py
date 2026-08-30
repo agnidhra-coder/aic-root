@@ -47,6 +47,15 @@ def render_markdown(
             )
         a("")
 
+    if narrative.general_recommendations:
+        a("## Other suggestions\n")
+        a("General practice for KPIs that moved this way, from the model's own "
+          "knowledge rather than this data. Nothing below was measured, nothing "
+          "cites the evidence table, and none of it is a cause.\n")
+        for rec in narrative.general_recommendations:
+            a(f"- **{rec.related_kpi}** — {rec.action} _{rec.rationale}_")
+        a("")
+
     if narrative.abstained_from:
         a("## Not answered\n")
         a("The engine abstained rather than explain these. Each entry names what is "
@@ -401,6 +410,23 @@ def render_console(
                          _confidence(act.confidence),
                          Text(", ".join(act.evidence_ids) or "—", style="dim"))
         body.add_row(acts)
+
+    if narrative.general_recommendations:
+        body.add_row("")
+        body.add_row(Text("OTHER SUGGESTIONS", style="bold dim"))
+        body.add_row(Text(
+            "general practice, not measured — no evidence backs these",
+            style="dim",
+        ))
+        suggestions = Table.grid(padding=(0, 1))
+        suggestions.add_column(width=1, no_wrap=True)
+        suggestions.add_column(overflow="fold")
+        for rec in narrative.general_recommendations:
+            line = Text(f"{rec.related_kpi} — ", style="bold")
+            line += Text(rec.action)
+            line += Text(f" {rec.rationale}", style="italic dim")
+            suggestions.add_row("•", line)
+        body.add_row(suggestions)
 
     if narrative.abstained_from:
         body.add_row("")

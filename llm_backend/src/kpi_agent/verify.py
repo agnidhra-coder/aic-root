@@ -199,6 +199,28 @@ def verify(
             extra_values=_claim_values(action.evidence_ids, context),
         )
 
+    # General recommendations are checked on inverted terms. Everything else here
+    # asks "is this number in the table"; these are declared ungrounded up front,
+    # so the rule is that they carry no measurement at all. An empty pool turns
+    # `_check_numbers` into exactly that check without a second implementation.
+    known_kpis = {f.kpi for f in context.facts if f.kpi}
+    for i, rec in enumerate(narrative.general_recommendations):
+        where = f"general_recommendations[{i}]"
+        claims_checked += 1
+        if rec.related_kpi not in known_kpis:
+            violations.append(Violation(
+                code="unknown_kpi", where=where,
+                detail=f"'{rec.related_kpi}' is not a KPI in the fact table. A "
+                       f"recommendation may be general, but it must be about a KPI "
+                       f"this run actually looked at.",
+            ))
+        for field, text in (("action", rec.action), ("rationale", rec.rationale)):
+            numbers_checked += _check_numbers(
+                text, f"{where}.{field}", [], violations,
+                repair="A general recommendation is not measured, so it may carry "
+                       "no figure at all. Remove the number and say it in words.",
+            )
+
     return VerificationResult(
         passed=not violations,
         violations=violations,
@@ -269,7 +291,15 @@ def _check_numbers(
     values: list[float],
     violations: list[Violation],
     extra_values: list[float] | None = None,
+    repair: str | None = None,
 ) -> int:
+    """Reject every non-structural number that no fact backs.
+
+    `repair` replaces the instruction half of the message. The default tells the
+    narrator to quote from the table; a caller passing an empty `values` pool is
+    saying no number belongs here at all, and "quote it from a fact" would be the
+    wrong repair to hand back for that.
+    """
     checked = 0
     if extra_values:
         values = [*values, *extra_values]
@@ -284,8 +314,10 @@ def _check_numbers(
         if not _matches(number, values):
             violations.append(Violation(
                 code="ungrounded_number", where=where,
-                detail=f"'{token}' appears in no fact. Quote numbers only from a "
-                       f"fact's display value, or drop the number.",
+                detail=repair or (
+                    f"'{token}' appears in no fact. Quote numbers only from a "
+                    f"fact's display value, or drop the number."
+                ),
             ))
     return checked
 

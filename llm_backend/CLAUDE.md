@@ -450,6 +450,18 @@ what became of it, and a tenant whose data drifts rather than spikes has no
 - **The LLM never produces a number.** It chooses the configuration and writes the
   prose. Every quantity in a report comes from an `EvidenceBundle` by way of the
   fact table in `kpi_agent/facts.py`.
+- **`general_recommendations` is the one place the model speaks from its own
+  knowledge — and it may not carry a number there either.** There is no external
+  knowledge base per tenant, so the grounded `actions` table is only ever as rich
+  as what attribution measured; this is the honest way to say more than that
+  without dressing it as a finding. It is a separate model from `Action`, carries
+  no `evidence_ids`, renders in its own section under its own disclaimer, and is
+  never a citation source for anything else. `verify.py` checks its `related_kpi`
+  against the fact table and calls `_check_numbers` with an **empty** value pool,
+  so any non-structural digit in it is an `ungrounded_number` — the rule is not
+  "ground the figure" but "there are no figures here". Do not fold it into
+  `actions` to make one table: the separation is what tells a reader which half
+  was measured.
 - **A user's context is a hypothesis, never evidence.** An `ExogenousFactor` is
   transcribed from the question, not measured. `exogenous.align_factors` places it
   against an event by date and entity arithmetic alone — a coincidence in time, and
