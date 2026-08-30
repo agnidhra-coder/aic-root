@@ -18,3 +18,8 @@ data/generated/
 .env.*
 .vscode/
 !llm_backend/docs
+
+# Real tenants NestJS provisions live-testing the AI integration -- named
+# `u-<8 hex chars>` by `unitsFromPlan`/company provisioning, never a demo
+# fixture like acme-retail/orbit-grocers/testco, which stay tracked.
+llm_backend/user/u-*/
