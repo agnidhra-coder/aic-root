@@ -41,8 +41,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const me = await meRequest(stored);
         setToken(stored);
         setUser(me);
-      } catch {
-        window.localStorage.removeItem(TOKEN_KEY);
+      } catch (err) {
+        // Only a real auth rejection means the token is invalid. A network
+        // error or a 5xx (the API being down, restarting, unreachable) says
+        // nothing about the token -- clearing it here would log the user out
+        // just because the server hiccuped, not because they need to log in
+        // again. Keep the stored token and let the next request retry.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          window.localStorage.removeItem(TOKEN_KEY);
+        }
       } finally {
         setIsLoading(false);
       }
