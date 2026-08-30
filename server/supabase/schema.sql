@@ -5,13 +5,26 @@ create table if not exists users (
   email text not null unique,
   password_hash text not null,
   name text not null,
-  -- The user's tenant in the Python KPI engine, created lazily on first upload.
-  -- One company per user; never reused across users.
+  -- Superseded by `user_companies` (one company per (user, domain), not per
+  -- user) -- kept, unused, rather than dropped, since a live column is
+  -- cheaper to leave than to migrate away from before it is needed.
   company_slug text unique,
   created_at timestamptz not null default now()
 );
 
 alter table users add column if not exists company_slug text unique;
+
+-- One Python tenant per (user, domain): a Retail upload and a Supply Chain
+-- upload from the same user get separate companies, each seeded from the
+-- template matching that domain. Looked up by `(user_id, domain)`; created
+-- lazily on that pair's first upload.
+create table if not exists user_companies (
+  user_id uuid not null references users(id) on delete cascade,
+  domain text not null check (domain in ('retail', 'supply-chain')),
+  company_slug text not null unique,
+  created_at timestamptz not null default now(),
+  primary key (user_id, domain)
+);
 
 create table if not exists uploads (
   id uuid primary key default gen_random_uuid(),

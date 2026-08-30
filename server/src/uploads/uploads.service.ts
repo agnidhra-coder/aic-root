@@ -12,7 +12,7 @@ import { unitsFromPlan } from '../analysis/evidence-mapper';
 import { PythonApiService } from '../python/python-api.service';
 import { UsersService } from '../users/users.service';
 import { KpiPlan, PlanDecision } from '../python/python-api.types';
-import { UploadRecord, UploadStatus } from './upload.entity';
+import { StoredKpiPlan, UploadRecord, UploadStatus } from './upload.entity';
 
 const TABLE = 'uploads';
 const BUCKET = 'kpi-uploads';
@@ -87,7 +87,10 @@ export class UploadsService {
       .from(TABLE)
       .insert({
         user_id: params.userId,
-        // Filing metadata only — never sent to Python, never a template selector.
+        // Drives the dashboard's tab filter AND selects which Python company
+        // (and starting template) this upload's KPI plan runs against — see
+        // `UsersService.companySlugFor`. The confirmed contract still ends up
+        // shaped by the file's real columns regardless of the template.
         domain: params.domain,
         filename: params.file.originalname,
         storage_path: storagePath,
@@ -117,6 +120,7 @@ export class UploadsService {
       uploadId: upload.id,
       userId: params.userId,
       userName: params.userName,
+      domain: params.domain,
       filename: params.file.originalname,
       buffer: params.file.buffer,
     });
@@ -128,6 +132,7 @@ export class UploadsService {
     uploadId: string;
     userId: string;
     userName: string;
+    domain: 'retail' | 'supply-chain';
     filename: string;
     buffer: Buffer;
   }): void {
@@ -153,13 +158,14 @@ export class UploadsService {
     uploadId: string;
     userId: string;
     userName: string;
+    domain: 'retail' | 'supply-chain';
     filename: string;
     buffer: Buffer;
   }): Promise<void> {
-    const companySlug = await this.users.ensureCompanySlug({
-      id: params.userId,
-      name: params.userName,
-    });
+    const companySlug = await this.users.companySlugFor(
+      { id: params.userId, name: params.userName },
+      params.domain,
+    );
 
     const response = await this.python.planKpis({
       companySlug,
@@ -178,12 +184,23 @@ export class UploadsService {
       );
     }
 
+    // Neither comes from the plan itself -- `staged` is about the CSV before
+    // profiling even starts, `bindings` is what the model could not place --
+    // but both are worth a user seeing before they confirm, so they ride
+    // along on the stored plan rather than being dropped with the rest of
+    // the stream once `drafted` fires.
+    const storedPlan: StoredKpiPlan = {
+      ...plan,
+      stagingWarnings: response.staged?.warnings ?? [],
+      unmatchedColumns: response.bindings?.unmatched_columns ?? [],
+    };
+
     const { error } = await this.supabase.client
       .from(TABLE)
       .update({
         status: 'awaiting_plan' satisfies UploadStatus,
         plan_id: plan.plan_id,
-        kpi_plan: plan,
+        kpi_plan: storedPlan,
         error_message: null,
       })
       .eq('id', params.uploadId);
@@ -214,7 +231,7 @@ export class UploadsService {
       throw new ConflictException('No KPI plan is on record for this upload');
     }
 
-    const companySlug = await this.companySlugFor(params.userId);
+    const companySlug = await this.companySlugFor(params.userId, upload.domain);
     const decisions = buildDecisions(plan, params.acceptedKpis);
 
     if (decisions.every((d) => d.verdict === 'reject')) {
@@ -265,7 +282,7 @@ export class UploadsService {
       );
     }
 
-    const companySlug = await this.companySlugFor(params.userId);
+    const companySlug = await this.companySlugFor(params.userId, upload.domain);
 
     this.analysisService.runInBackground({
       uploadId: upload.id,
@@ -321,14 +338,25 @@ export class UploadsService {
     return upload;
   }
 
-  private async companySlugFor(userId: string): Promise<string> {
+  /**
+   * The company for one upload's (user, domain) pair.
+   *
+   * By the time this is called, `planKpis` has already run for this upload
+   * and created it — `UsersService.companySlugFor` is idempotent, so this
+   * just resolves the existing slug rather than creating a second one, but a
+   * missing user record is still a real inconsistency worth a clear error.
+   */
+  private async companySlugFor(
+    userId: string,
+    domain: 'retail' | 'supply-chain',
+  ): Promise<string> {
     const user = await this.users.findById(userId);
-    if (!user?.company_slug) {
+    if (!user) {
       throw new ConflictException(
         'No analysis workspace exists for this account yet',
       );
     }
-    return user.company_slug;
+    return this.users.companySlugFor({ id: user.id, name: user.name }, domain);
   }
 
   private async setStatus(

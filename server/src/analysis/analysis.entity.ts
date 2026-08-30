@@ -10,7 +10,13 @@ export interface EvidenceItem {
   // was zero and the engine could not define a proportion.
   contribution: number | null;
   citation: string;
+  // "This contribution is exact" (follows directly from the KPI's formula)
+  // vs. a statistical estimate. The one qualitative flag the card has room
+  // for -- named `aligned` for historical reasons, not because it means
+  // "lines up with something."
   aligned: boolean;
+  // The statistical method's name when `aligned` is false; null when exact.
+  method: string | null;
 }
 
 export interface DecomposeStep {
@@ -37,6 +43,15 @@ export interface DriverKpi {
   // Net Profit Margin and Gross Profit) -- this is what tells those rows apart.
   explainedKpi: string;
   formula: string;
+  // True when this contribution follows exactly from the KPI's own formula
+  // (e.g. Net Profit = Revenue - Costs, so each side's move is known exactly);
+  // false when it comes from a statistical method instead, which carries
+  // real uncertainty a plain number does not show. Never render one as if
+  // it were the other.
+  exact: boolean;
+  // The statistical method's name (e.g. "did", "its") when `exact` is false;
+  // null when `exact` is true, since there is no method to name.
+  method: string | null;
   value: string;
   delta: number;
   deltaLabel: string;
@@ -69,6 +84,10 @@ export interface KpiCase {
   evidence: EvidenceItem[];
   contributionTotal: number;
   narratives: Record<string, string[]>;
+  // General business-practice suggestions naming this case's own KPI, from
+  // the model's own knowledge -- never measured, never a cause. Filtered from
+  // the run's narrative the same way `narratives` is.
+  generalRecommendations: GeneralRecommendation[];
   action: ActionPlan;
   checkBackDate: string;
 }
@@ -102,11 +121,21 @@ export interface TrendFinding {
 }
 
 /** The single narrative the run produced, in full. */
+export interface GeneralRecommendation {
+  relatedKpi: string;
+  action: string;
+  rationale: string;
+}
+
 export interface NarrativeSummary {
   headline: string;
   whatHappened: string[];
   why: string[];
   needsAttention: string[];
+  // General business-practice suggestions from the model's own knowledge, not
+  // measured evidence -- no numbers, no citation, never a cause. Kept apart
+  // from the case-level `action` for exactly that reason.
+  generalRecommendations: GeneralRecommendation[];
   uncertainty: string;
   abstainedFrom: string[];
   usedFallback: boolean;
@@ -144,7 +173,11 @@ export interface AnalysisResult {
   abstentions?: {
     kpiName: string;
     reason: string;
-    whatWouldResolveIt: string;
+    whatWouldResolveIt: string[];
+    // How many detected events abstained for this same (KPI, reason) pair --
+    // several near-identical abstentions are one finding, not several, the
+    // same way the engine's own `abstention_summary` collapses them.
+    eventCount: number;
   }[];
   /** The user's stated context, placed against the detected events — or not. */
   contextAlignments?: ContextAlignmentItem[];
@@ -152,6 +185,13 @@ export interface AnalysisResult {
   trends?: TrendFinding[];
   /** Caveats the engine attached to the data itself. */
   dataCaveats?: string[];
+  /**
+   * What the validator adjusted about the resolved plan -- a grain the data
+   * could not train on stepped down, a requested KPI or dimension dropped as
+   * unknown. Never a silent substitution: if the run answered a narrower or
+   * different question than the one asked, this says so.
+   */
+  planProblems?: string[];
   /** Populated when the run detected nothing; explains what was searched. */
   noFindings?: {
     timeGrain: string | null;

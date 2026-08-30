@@ -3,7 +3,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { AnalysisRecord, AnalysisResult } from './analysis.entity';
 import { AnalysisStage, UploadStatus } from '../uploads/upload.entity';
 import { PythonApiService } from '../python/python-api.service';
-import { AskFact, AskNarrative } from '../python/python-api.types';
+import { AskNarrative } from '../python/python-api.types';
 import {
   absorbFrame,
   attachActions,
@@ -131,11 +131,22 @@ export class AnalysisService {
       kpiUnits: params.kpiUnits,
     });
 
-    const facts: AskFact[] = acc.evidence?.facts ?? [];
-    const factsById = new Map(facts.map((f) => [f.id, f]));
     const narrative: AskNarrative | null | undefined = acc.narrative?.narrative;
-    attachActions(result, narrative, factsById);
-    attachNarratives(result);
+
+    // A `KpiCase.id` is its event's id; each event names its own fact ids
+    // directly, which is a far more reliable way to tell which facts (and so
+    // which actions and narrative claims) are "this case's" than a fact's
+    // `lineage` -- movement facts carry no `event_id` in theirs at all, only
+    // a contribution fact's does, so routing by lineage alone silently
+    // misses anything that also cites a movement fact.
+    const factIdsByEvent = new Map(
+      (acc.evidence?.events ?? []).map((e) => [
+        e.event_id,
+        new Set(e.fact_ids),
+      ]),
+    );
+    attachActions(result, narrative, factIdsByEvent);
+    attachNarratives(result, narrative, factIdsByEvent);
 
     // `upsert` rather than `insert`: `analyses.upload_id` is unique, and a user
     // may legitimately re-run a question against the same upload.

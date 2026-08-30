@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
-import { ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Info } from "lucide-react";
 import type { DriverKpi } from "@/lib/api";
+import { MethodBadge } from "./MethodBadge";
 
 /**
  * One event window can bundle movements in several KPIs that share drivers —
@@ -19,6 +20,21 @@ function groupByExplainedKpi(drivers: DriverKpi[]): Map<string, DriverKpi[]> {
     else groups.set(key, [driver]);
   }
   return groups;
+}
+
+/**
+ * True when this group's contributions can only be read correctly by
+ * noticing they partly cancel out — some driver pushed the KPI one way, a
+ * bigger one pushed it back, and the KPI's real move is the small leftover
+ * of two much larger swings. Without calling this out, a share past 100%
+ * (or two large opposite-signed shares) reads as broken math rather than
+ * what it is.
+ */
+function hasOffsettingDrivers(drivers: DriverKpi[]): boolean {
+  const shares = drivers.map((d) => d.delta).filter((d) => d !== 0);
+  const hasLargeShare = shares.some((d) => Math.abs(d) > 100);
+  const signs = new Set(shares.map((d) => (d > 0 ? 1 : -1)));
+  return hasLargeShare && signs.size > 1;
 }
 
 export function DriverBreakdownCard({ drivers }: { drivers: DriverKpi[] }) {
@@ -43,6 +59,16 @@ export function DriverBreakdownCard({ drivers }: { drivers: DriverKpi[] }) {
             <p className="border-b border-slate-100 bg-slate-50/60 px-6 py-2.5 text-sm font-medium text-slate-500">
               Explains {explainedKpi}
             </p>
+          )}
+          {hasOffsettingDrivers(group) && (
+            <div className="flex items-start gap-2 border-b border-amber-100 bg-amber-50/60 px-6 py-2.5 text-sm text-amber-700">
+              <Info size={15} className="mt-0.5 shrink-0" />
+              <p>
+                These drivers moved in opposite directions and partly offset each other, which is
+                why some contributions below are larger than 100% — the KPI&apos;s actual move is
+                the small leftover of two much bigger swings.
+              </p>
+            </div>
           )}
           <DriverGroup drivers={group} />
         </div>
@@ -84,7 +110,7 @@ function DriverGroup({ drivers }: { drivers: DriverKpi[] }) {
                   </span>
                 )}
               </div>
-              <p className="mt-0.5 font-mono text-sm text-slate-400">{driver.formula}</p>
+              <MethodBadge exact={driver.exact} method={driver.method} className="mt-1.5" />
             </div>
             <div className="flex items-center gap-4">
               <p className="text-base font-semibold text-slate-900">{driver.value}</p>

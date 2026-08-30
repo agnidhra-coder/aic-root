@@ -141,12 +141,20 @@ export interface KpiPlan {
   unavailable: UnavailableKpi[];
   columns: ColumnReport[];
   problems: string[];
+  // Attached by the server, not part of the plan itself: warnings about the
+  // uploaded CSV from before profiling even started, and columns the model
+  // could not place against any KPI. Worth seeing before confirming.
+  stagingWarnings?: string[];
+  unmatchedColumns?: string[];
 }
 
 export interface UploadRecord {
   id: string;
   user_id: string;
-  /** Filing/display metadata only — it drives the dashboard tabs, nothing else. */
+  /**
+   * Drives the dashboard tabs, and picks which analysis workspace (and
+   * starting template) this upload's KPI plan runs against on the server.
+   */
   domain: UploadDomain;
   filename: string;
   storage_path: string;
@@ -174,7 +182,11 @@ export interface EvidenceItem {
   // was zero and the engine could not define a proportion.
   contribution: number | null;
   citation: string;
+  // "This contribution is exact" vs. a statistical estimate.
   aligned: boolean;
+  // The statistical method's name when `aligned` is false; absent/null when
+  // exact, or when the source (e.g. demo data) never set one.
+  method?: string | null;
 }
 
 export interface DecomposeStep {
@@ -201,6 +213,11 @@ export interface DriverKpi {
   // Net Profit Margin and Gross Profit) -- this is what tells those rows apart.
   explainedKpi: string;
   formula: string;
+  // True when this contribution follows exactly from the KPI's own formula;
+  // false when it comes from a statistical method instead.
+  exact: boolean;
+  // The statistical method's name when `exact` is false; null when exact.
+  method: string | null;
   value: string;
   delta: number;
   deltaLabel: string;
@@ -232,6 +249,9 @@ export interface KpiCase {
   evidence: EvidenceItem[];
   contributionTotal: number;
   narratives: Record<string, string[]>;
+  // General business-practice suggestions naming this case's own KPI, from
+  // the model's own knowledge -- never measured, never a cause.
+  generalRecommendations: GeneralRecommendation[];
   action: ActionPlan;
   checkBackDate: string;
 }
@@ -263,11 +283,20 @@ export interface TrendFinding {
   note: string;
 }
 
+export interface GeneralRecommendation {
+  relatedKpi: string;
+  action: string;
+  rationale: string;
+}
+
 export interface NarrativeSummary {
   headline: string;
   whatHappened: string[];
   why: string[];
   needsAttention: string[];
+  // General business-practice suggestions from the model's own knowledge, not
+  // measured evidence -- no numbers, no citation, never a cause.
+  generalRecommendations: GeneralRecommendation[];
   uncertainty: string;
   abstainedFrom: string[];
   usedFallback: boolean;
@@ -292,7 +321,12 @@ export interface AnalysisResult {
   narrative?: NarrativeSummary;
   reportMarkdown?: string;
   verification?: VerificationSummary;
-  abstentions?: { kpiName: string; reason: string; whatWouldResolveIt: string }[];
+  abstentions?: {
+    kpiName: string;
+    reason: string;
+    whatWouldResolveIt: string[];
+    eventCount: number;
+  }[];
   contextAlignments?: ContextAlignmentItem[];
   trends?: TrendFinding[];
   dataCaveats?: string[];

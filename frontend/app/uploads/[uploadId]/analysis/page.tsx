@@ -16,10 +16,28 @@ import {
   getAnalysisRequest,
   getUploadRequest,
   type AnalysisResult,
+  type ContextAlignmentItem,
   type UploadRecord,
 } from "@/lib/api";
 
 const POLL_INTERVAL_MS = 2000;
+
+/**
+ * Mirrors `BASE_QUESTION` in `server/src/analysis/analysis.service.ts` — the
+ * sentence sent verbatim when the question box was left blank, and the
+ * prefix `buildQuestion` prepends to whatever the user typed otherwise.
+ * Stripping it back off `analysis.question` is how this page recovers just
+ * the user's own addition, since the two are stored as one combined string.
+ */
+const BASE_QUESTION = "Analyze the KPIs I selected and tell me what needs attention.";
+
+function userPrompt(question: string | undefined): string | null {
+  if (!question) return null;
+  const extra = question.startsWith(BASE_QUESTION)
+    ? question.slice(BASE_QUESTION.length).trim()
+    : question.trim();
+  return extra.length > 0 ? extra : null;
+}
 
 /** The statuses that mean the setup steps are still outstanding. */
 const AWAITING_SETUP = ["pending", "planning", "awaiting_plan", "confirming", "awaiting_question"];
@@ -181,6 +199,28 @@ function AnalysisContent() {
   );
 }
 
+/**
+ * A narrative sentence has its detected window appended as plain text --
+ * "... (2024-06-24 to 2024-07-08)" -- so it reads correctly even before this
+ * renders. Split it out here to make the date visually distinct instead of
+ * blending into the sentence around it.
+ */
+const WINDOW_SUFFIX = /\s*\((\d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2})\)\s*$/;
+
+function NarrativeLine({ text }: { text: string }) {
+  const match = text.match(WINDOW_SUFFIX);
+  if (!match) return <>{text}</>;
+
+  const body = text.slice(0, match.index);
+  const window = match[1];
+  return (
+    <>
+      {body}{" "}
+      <span className="font-semibold text-slate-700">({window})</span>
+    </>
+  );
+}
+
 /** The run's one narrative, in full. One run produces one, not one per persona. */
 function AnalysisNarrative({ analysis }: { analysis: AnalysisResult }) {
   const narrative = analysis.narrative;
@@ -205,18 +245,35 @@ function AnalysisNarrative({ analysis }: { analysis: AnalysisResult }) {
             </p>
             <ul className="mt-1.5 list-disc space-y-1 pl-5 text-base text-slate-600">
               {section.items.map((text, i) => (
-                <li key={i}>{text}</li>
+                <li key={i}>
+                  <NarrativeLine text={text} />
+                </li>
               ))}
             </ul>
-            {section.label === "What happened" && (
-              <p className="mt-2 text-sm text-slate-400">
-                The prose above summarizes magnitude and cause; each KPI card below states the
-                exact period it was detected over.
-              </p>
-            )}
           </div>
         ))}
       </div>
+
+      {narrative.generalRecommendations.length > 0 && (
+        <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-6">
+          <p className="text-base font-semibold uppercase tracking-wide text-slate-900">
+            Results
+          </p>
+          <p className="mt-1.5 text-sm text-slate-400">
+            General practice for KPIs that moved this way, from the model&apos;s own knowledge
+            rather than this data. Nothing below was measured, and none of it is a cause.
+          </p>
+          <ul className="mt-3 space-y-2.5">
+            {narrative.generalRecommendations.map((rec, i) => (
+              <li key={i} className="text-base text-slate-600">
+                <span className="font-medium text-slate-800">{rec.relatedKpi}</span>{" "}
+                — {rec.action}{" "}
+                <span className="italic text-slate-500">{rec.rationale}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {narrative.uncertainty && (
         <p className="mt-5 text-sm text-slate-500">
@@ -282,6 +339,44 @@ function NoCases({ analysis }: { analysis: AnalysisResult }) {
   );
 }
 
+/**
+ * One sentence describing where a stated factor landed, built entirely from
+ * structured fields — never `note`/`eventId`, which repeat the same overlap
+ * and expose an internal id ("EV-West-20240624-007") a reader cannot use.
+ */
+function alignmentSummary(alignment: ContextAlignmentItem): string {
+  if (!alignment.aligned) {
+    return "Nothing in the detected windows lines up with this.";
+  }
+
+  const parts: string[] = [];
+  if (alignment.overlapDays) {
+    parts.push(
+      `Overlaps a detected event by ${alignment.overlapDays} day${alignment.overlapDays === 1 ? "" : "s"}`,
+    );
+  } else if (alignment.lagDays) {
+    parts.push(
+      `Falls ${alignment.lagDays} day${alignment.lagDays === 1 ? "" : "s"} from a detected event`,
+    );
+  } else {
+    parts.push("Lines up with a detected event");
+  }
+
+  if (alignment.kpisMoved.length > 0) {
+    parts.push(`during a move in ${alignment.kpisMoved.join(", ")}`);
+  }
+
+  let summary = `${parts.join(" ")}.`;
+
+  if (alignment.directionAgrees === true) {
+    summary += " The direction you expected matches what was observed.";
+  } else if (alignment.directionAgrees === false) {
+    summary += " The direction you expected does not match what was observed.";
+  }
+
+  return `${summary} This is a coincidence in time, not a cause — the engine never treats it as one.`;
+}
+
 /** Context alignments, abstentions and caveats — the honest small print. */
 function AnalysisFootnotes({ analysis }: { analysis: AnalysisResult }) {
   const alignments = analysis.contextAlignments ?? [];
@@ -292,6 +387,8 @@ function AnalysisFootnotes({ analysis }: { analysis: AnalysisResult }) {
     return null;
   }
 
+  const prompt = userPrompt(analysis.question);
+
   return (
     <section className="mt-8 space-y-6">
       {alignments.length > 0 && (
@@ -301,17 +398,17 @@ function AnalysisFootnotes({ analysis }: { analysis: AnalysisResult }) {
             Placed against the detected windows by date and entity alone. A coincidence in time is
             not a cause, and the engine never treats it as one.
           </p>
+          {prompt && (
+            <p className="mt-3 rounded-lg bg-accent-50 px-3 py-2.5 text-sm text-slate-600">
+              <span className="font-medium text-slate-700">Based on what you asked: </span>
+              <span className="italic">&ldquo;{prompt}&rdquo;</span>
+            </p>
+          )}
           <ul className="mt-3 space-y-2.5">
             {alignments.map((alignment, i) => (
               <li key={i} className="text-base">
-                <p className="font-medium text-slate-700">{alignment.factorLabel}</p>
-                <p className="text-sm text-slate-500">
-                  {alignment.aligned && alignment.eventId
-                    ? `Lines up with ${alignment.eventId}${
-                        alignment.overlapDays ? ` (${alignment.overlapDays} day overlap)` : ""
-                      }. ${alignment.note}`
-                    : alignment.note}
-                </p>
+                <p className="font-medium capitalize text-slate-700">{alignment.factorLabel}</p>
+                <p className="text-sm text-slate-500">{alignmentSummary(alignment)}</p>
               </li>
             ))}
           </ul>
@@ -324,11 +421,18 @@ function AnalysisFootnotes({ analysis }: { analysis: AnalysisResult }) {
           <ul className="mt-3 space-y-2.5">
             {abstentions.map((abstention, i) => (
               <li key={i} className="text-base">
-                <p className="font-medium text-slate-700">{abstention.kpiName}</p>
+                <p className="font-medium text-slate-700">
+                  {abstention.kpiName}
+                  {abstention.eventCount > 1 && (
+                    <span className="ml-2 text-sm font-normal text-slate-400">
+                      ({abstention.eventCount} events)
+                    </span>
+                  )}
+                </p>
                 <p className="text-sm text-slate-500">{abstention.reason}</p>
-                {abstention.whatWouldResolveIt && (
+                {abstention.whatWouldResolveIt.length > 0 && (
                   <p className="text-sm text-slate-400">
-                    Would resolve it: {abstention.whatWouldResolveIt}
+                    Would resolve it: {abstention.whatWouldResolveIt.join('; ')}
                   </p>
                 )}
               </li>

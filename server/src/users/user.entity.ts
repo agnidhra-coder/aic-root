@@ -4,10 +4,19 @@ export interface UserRecord {
   password_hash: string;
   name: string;
   /**
-   * The user's tenant in the Python KPI engine, created lazily on first upload.
-   * Null until then. One company per user, derived from `id` and never reused.
+   * Superseded by `user_companies` (one Python tenant per (user, domain), not
+   * per user) — kept only so the column need not be dropped; never written or
+   * read by current code. See `UsersService.companySlugFor`.
    */
   company_slug: string | null;
+  created_at: string;
+}
+
+/** One row of `user_companies`: the Python tenant for one (user, domain) pair. */
+export interface UserCompanyRecord {
+  user_id: string;
+  domain: string;
+  company_slug: string;
   created_at: string;
 }
 

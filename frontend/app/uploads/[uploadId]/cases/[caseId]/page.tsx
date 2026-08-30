@@ -245,6 +245,29 @@ function CaseDetailContent() {
                     </div>
                   </section>
 
+                  {kpiCase.generalRecommendations.length > 0 && (
+                    <section className="mb-10">
+                      <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">
+                        Other suggestions
+                      </h2>
+                      <div className="rounded-xl border border-slate-200 bg-white p-6">
+                        <p className="mb-3 text-sm text-slate-400">
+                          General practice for KPIs that moved this way, from the model&apos;s own
+                          knowledge rather than this data. Nothing below was measured, and none of
+                          it is a cause.
+                        </p>
+                        <ul className="list-disc space-y-2 pl-5 text-base text-slate-600">
+                          {kpiCase.generalRecommendations.map((rec, i) => (
+                            <li key={i}>
+                              {rec.action}{" "}
+                              <span className="italic text-slate-500">{rec.rationale}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </section>
+                  )}
+
                   {kpiCase.action.monitor && (
                     <section className="mb-4 flex items-center gap-3 rounded-xl bg-slate-50 px-6 py-5 text-base text-slate-500">
                       <CalendarCheck2 size={19} className="text-slate-400" />

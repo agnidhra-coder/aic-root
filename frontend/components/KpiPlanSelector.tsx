@@ -87,6 +87,17 @@ export function KpiPlanSelector({
         </p>
       </div>
 
+      {plan.stagingWarnings && plan.stagingWarnings.length > 0 && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50 px-5 py-4 text-sm text-amber-700">
+          <AlertCircle size={18} className="mt-0.5 shrink-0" />
+          <ul className="list-disc space-y-1 pl-4">
+            {plan.stagingWarnings.map((warning, i) => (
+              <li key={i}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {plan.proposed.length === 0 ? (
         <div className="flex items-start gap-3 rounded-xl border border-amber-100 bg-amber-50 px-5 py-4 text-sm text-amber-700">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
@@ -198,6 +209,25 @@ export function KpiPlanSelector({
               </li>
             ))}
           </ul>
+        </details>
+      )}
+
+      {plan.unmatchedColumns && plan.unmatchedColumns.length > 0 && (
+        <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium text-slate-600">
+            {plan.unmatchedColumns.length} column
+            {plan.unmatchedColumns.length === 1 ? "" : "s"} could not be placed against any KPI
+          </summary>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {plan.unmatchedColumns.map((column) => (
+              <span
+                key={column}
+                className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+              >
+                {column}
+              </span>
+            ))}
+          </div>
         </details>
       )}
 

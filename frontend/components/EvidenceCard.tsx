@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
-import { Database, FileText, CloudRain, Check, X } from "lucide-react";
+import { Database, FileText, CloudRain } from "lucide-react";
 import type { EvidenceItem } from "@/lib/types";
+import { MethodBadge } from "./MethodBadge";
 
 const iconFor = {
   structured: Database,
@@ -29,18 +30,12 @@ export function EvidenceCard({ item }: { item: EvidenceItem }) {
             <p className="text-base font-semibold text-slate-900">{item.label}</p>
           </div>
         </div>
-        <span
-          className={clsx(
-            "flex items-center gap-1 rounded-full px-2.5 py-1 text-sm font-medium",
-            item.aligned ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
-          )}
-        >
-          {item.aligned ? <Check size={13} /> : <X size={13} />}
-          {item.aligned ? "aligned" : "no signal"}
-        </span>
+        <MethodBadge exact={item.aligned} method={item.method} />
       </div>
 
-      <p className="mt-4 text-base leading-relaxed text-slate-600">{item.detail}</p>
+      {item.detail && (
+        <p className="mt-4 text-base leading-relaxed text-slate-600">{item.detail}</p>
+      )}
 
       <div className="mt-4">
         <div className="flex items-center justify-between text-sm text-slate-400">

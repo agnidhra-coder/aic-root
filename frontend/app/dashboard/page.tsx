@@ -71,7 +71,10 @@ function DashboardContent() {
   }, [uploads, loadUploads]);
 
   const domainUploads = useMemo(
-    () => uploads.filter((u) => u.domain === domain).sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    () =>
+      uploads
+        .filter((u) => u.domain === domain && u.status !== "failed")
+        .sort((a, b) => b.created_at.localeCompare(a.created_at)),
     [uploads, domain]
   );
 

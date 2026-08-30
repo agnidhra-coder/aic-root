@@ -1,4 +1,8 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CompanyDescription,
@@ -14,31 +18,48 @@ const DEFAULT_BASE_URL = 'http://127.0.0.1:8000';
 /**
  * Server-to-server client for `llm_backend`'s FastAPI service.
  *
- * The Python tier has no authentication and binds 127.0.0.1 on purpose — it is
- * only ever reached from here, never from the browser. Every route takes its
- * selectors (`company`, `source_id`, `run_id`) as query parameters; none of them
- * has a path parameter.
+ * The Python tier has no per-caller authentication and binds 127.0.0.1 on
+ * purpose when the two sit on one host — it is only ever reached from here,
+ * never from the browser. When the two are deployed on separate hosts instead,
+ * `PYTHON_API_SHARED_SECRET` here must match `KPI_API_SHARED_SECRET` on the
+ * Python side; unset on both, it is a no-op (the local, same-host case).
+ * Every route takes its selectors (`company`, `source_id`, `run_id`) as query
+ * parameters; none of them has a path parameter.
  */
 @Injectable()
 export class PythonApiService {
   private readonly logger = new Logger(PythonApiService.name);
   private readonly baseUrl: string;
+  private readonly sharedSecret: string | undefined;
 
   constructor(config: ConfigService) {
     this.baseUrl = (
       config.get<string>('PYTHON_API_URL') ?? DEFAULT_BASE_URL
     ).replace(/\/+$/, '');
+    this.sharedSecret = config.get<string>('PYTHON_API_SHARED_SECRET');
   }
 
-  /** `POST /companies` — provision a tenant. Always seeded from `blank`. */
+  /**
+   * `POST /companies` — provision a tenant.
+   *
+   * Seeded from the template matching `domain` when one exists (`retail`,
+   * `supply-chain` — the same calibrated thresholds and DAG `acme-retail`
+   * ships with), or `blank` otherwise, so a domain this deployment has no
+   * template for never briefly claims metrics its file cannot produce. Either
+   * way, every upload still runs the full `/kpi-plan` -> `confirm` handshake
+   * before the company answers a question, which rewrites the contract to
+   * match the file's real columns regardless of which template it started
+   * from — the template is a starting point, not a promise.
+   */
   async createCompany(params: {
     companyId: string;
     displayName: string;
+    domain: PythonDomain;
     supabaseUserIds: string[];
   }): Promise<CompanyDescription> {
-    // `blank` declares no KPIs, so the tenant never claims a metric its file
-    // cannot produce — the domain label the wizard carries is never used here.
-    const domains: PythonDomain[] = ['other'];
+    const template = ['retail', 'supply-chain'].includes(params.domain)
+      ? params.domain
+      : 'blank';
 
     return this.json<CompanyDescription>('/companies', {
       method: 'POST',
@@ -46,8 +67,8 @@ export class PythonApiService {
       body: JSON.stringify({
         company_id: params.companyId,
         display_name: params.displayName,
-        domains,
-        template: 'blank',
+        domains: [params.domain],
+        template,
         supabase_user_ids: params.supabaseUserIds,
       }),
     });
@@ -192,9 +213,18 @@ export class PythonApiService {
 
   private async fetch(path: string, init?: RequestInit): Promise<Response> {
     try {
-      return await fetch(`${this.baseUrl}${path}`, init);
+      return await fetch(`${this.baseUrl}${path}`, {
+        ...init,
+        headers: {
+          ...init?.headers,
+          ...(this.sharedSecret ? { 'X-KPI-Api-Key': this.sharedSecret } : {}),
+        },
+      });
     } catch (err) {
-      this.logger.error(`Cannot reach the analysis service at ${this.baseUrl}`, err);
+      this.logger.error(
+        `Cannot reach the analysis service at ${this.baseUrl}`,
+        err,
+      );
       throw new ServiceUnavailableException(
         'The analysis service is unreachable. Is the KPI engine running?',
       );

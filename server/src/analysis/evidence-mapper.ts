@@ -24,6 +24,7 @@ import {
 } from './analysis.entity';
 import {
   AskAbstention,
+  AskClaim,
   AskEnginePayload,
   AskEventEntry,
   AskEvidencePayload,
@@ -32,6 +33,7 @@ import {
   AskNarrative,
   AskNarrativePayload,
   AskNoFindingsPayload,
+  AskPlanPayload,
   KpiPlan,
 } from '../python/python-api.types';
 
@@ -85,13 +87,18 @@ const CONFIDENCE_THRESHOLD = 0.7;
 /** Everything the stream told us, accumulated frame by frame. */
 export interface AskAccumulator {
   ingest?: AskIngestPayload;
+  plan?: AskPlanPayload;
   engine?: AskEnginePayload;
   evidence?: AskEvidencePayload;
   narrative?: AskNarrativePayload;
   verification?: Record<string, unknown>;
   report?: { report_markdown?: string };
   noFindings?: AskNoFindingsPayload;
-  clarification?: { message?: string };
+  clarification?: {
+    message?: string;
+    problems?: string[];
+    report_markdown?: string;
+  };
   error?: { type: string; message: string };
   runId?: string;
   outcome?: string;
@@ -113,6 +120,11 @@ export function absorbFrame(
       break;
     case 'ingest':
       acc.ingest = data as unknown as AskIngestPayload;
+      break;
+    case 'plan':
+      // Fires twice ("proposed" then "resolved"); the resolved plan is the
+      // one that actually ran, so the last write is the one worth keeping.
+      acc.plan = data as unknown as AskPlanPayload;
       break;
     case 'engine': {
       const payload = data as unknown as AskEnginePayload;
@@ -173,6 +185,17 @@ export function buildAnalysisResult(params: {
     buildCase(entry, factsById, acc.evidence?.abstentions ?? [], kpiUnits),
   );
 
+  // Which detected window each fact's claim is about, so a narrative
+  // sentence can say *when* a movement happened -- the model is never
+  // required to write a date into its own prose, and the claim is otherwise
+  // left to a reader hunting through the KPI cards below for the period.
+  const windowByFactId = new Map<string, string>();
+  for (const entry of events) {
+    const window = formatWindow(entry);
+    if (!window) continue;
+    for (const factId of entry.fact_ids) windowByFactId.set(factId, window);
+  }
+
   const rowCount =
     acc.ingest?.sources?.reduce((sum, s) => sum + (s.rows ?? 0), 0) ??
     params.fallbackRowCount;
@@ -189,7 +212,7 @@ export function buildAnalysisResult(params: {
   if (acc.runId) result.runId = acc.runId;
   if (acc.outcome) result.outcome = acc.outcome;
 
-  const narrative = buildNarrative(acc.narrative);
+  const narrative = buildNarrative(acc.narrative, windowByFactId);
   if (narrative) result.narrative = narrative;
 
   const markdown =
@@ -199,14 +222,8 @@ export function buildAnalysisResult(params: {
   const verification = buildVerification(acc.verification);
   if (verification) result.verification = verification;
 
-  const abstentions = acc.evidence?.abstentions ?? [];
-  if (abstentions.length > 0) {
-    result.abstentions = abstentions.map((a) => ({
-      kpiName: a.kpi,
-      reason: a.message || a.reason_code,
-      whatWouldResolveIt: a.what_would_resolve_it ?? '',
-    }));
-  }
+  const abstentions = buildAbstentions(acc.evidence?.abstentions ?? []);
+  if (abstentions.length > 0) result.abstentions = abstentions;
 
   const alignments = buildContextAlignments(acc.engine);
   if (alignments.length > 0) result.contextAlignments = alignments;
@@ -216,6 +233,9 @@ export function buildAnalysisResult(params: {
 
   const caveats = acc.evidence?.data_caveats ?? [];
   if (caveats.length > 0) result.dataCaveats = caveats;
+
+  const planProblems = acc.plan?.problems ?? [];
+  if (planProblems.length > 0) result.planProblems = planProblems;
 
   if (acc.noFindings) {
     const searched = acc.noFindings.searched;
@@ -295,6 +315,7 @@ function buildCase(
     evidence: buildEvidence(contributions, abstention),
     contributionTotal: Math.round((entry.confidence ?? 0) * 100),
     narratives: {},
+    generalRecommendations: [],
     action: EMPTY_ACTION,
     checkBackDate: '',
   };
@@ -378,10 +399,14 @@ function toDriverKpi(fact: AskFact): DriverKpi {
     // one case's `driverBreakdown` -- this says which movement each row is.
     explainedKpi: fact.kpi ?? '',
     // `exact` is the whole distinction between algebra and an estimate, and it
-    // must never be presented as the same thing.
+    // must never be presented as the same thing. Kept as a string too for
+    // any consumer still reading it as free text; `exact`/`method` are the
+    // real fields a UI should build a badge from instead.
     formula: fact.exact
       ? 'exact algebra'
       : `estimated by ${fact.method ?? 'a model'}`,
+    exact: fact.exact === true,
+    method: fact.exact ? null : (fact.method ?? null),
     // `display` already reads as a full sentence ("Total Expenses: -5.03e+05
     // (+106.2% of the move)"), so `value` and `deltaLabel` would otherwise
     // repeat it verbatim. `value` carries the number alone; `deltaLabel`
@@ -401,7 +426,12 @@ function buildEvidence(
   const items: EvidenceItem[] = contributions.map((fact) => ({
     kind: 'structured',
     label: fact.label,
-    detail: fact.note ?? '',
+    // `fact.note` for a contribution is purely the exact-vs-estimated
+    // sentence ("exact algebra -- follows from the KPI's definition" /
+    // "estimated by {method}") -- `aligned`/`method` below carry that as
+    // real fields for the UI to build a badge from, so there is nothing
+    // else worth showing here as free text.
+    detail: '',
     // `fact.value` is the driver's raw contribution amount in the KPI's own
     // unit (e.g. -502,540 dollars of Total Expenses) -- not a percentage, and
     // rendering it as one is what produced a "-502540%" progress bar. `share`
@@ -413,13 +443,14 @@ function buildEvidence(
     // `aligned` here means "this contribution is exact", which is the one
     // qualitative flag the card has room for.
     aligned: fact.exact === true,
+    method: fact.exact ? null : (fact.method ?? null),
   }));
 
   if (abstention) {
     items.push({
       kind: 'structured',
       label: `No explanation for ${abstention.kpi}`,
-      detail: [abstention.message, abstention.what_would_resolve_it]
+      detail: [abstention.message, ...(abstention.what_would_resolve_it ?? [])]
         .filter(Boolean)
         .join(' '),
       // An abstention names no driver and has no share of anything, which is
@@ -428,6 +459,7 @@ function buildEvidence(
       contribution: null,
       citation: abstention.reason_code,
       aligned: false,
+      method: null,
     });
   }
 
@@ -440,23 +472,46 @@ function buildEvidence(
 
 function buildNarrative(
   payload: AskNarrativePayload | undefined,
+  windowByFactId: Map<string, string>,
 ): NarrativeSummary | undefined {
   const narrative: AskNarrative | null | undefined = payload?.narrative;
   if (!narrative) return undefined;
 
+  const dated = (c: AskClaim): string =>
+    appendWindow(humaniseNumbers(c.text), c.evidence_ids, windowByFactId);
+
   return {
     headline: humaniseNumbers(narrative.headline),
-    whatHappened: (narrative.what_happened ?? []).map((c) =>
-      humaniseNumbers(c.text),
-    ),
-    why: (narrative.why ?? []).map((c) => humaniseNumbers(c.text)),
-    needsAttention: (narrative.needs_attention ?? []).map((c) =>
-      humaniseNumbers(c.text),
+    whatHappened: (narrative.what_happened ?? []).map(dated),
+    why: (narrative.why ?? []).map(dated),
+    needsAttention: (narrative.needs_attention ?? []).map(dated),
+    generalRecommendations: (narrative.general_recommendations ?? []).map(
+      (rec) => ({
+        relatedKpi: rec.related_kpi,
+        action: rec.action,
+        rationale: rec.rationale,
+      }),
     ),
     uncertainty: humaniseNumbers(narrative.uncertainty ?? ''),
     abstainedFrom: (narrative.abstained_from ?? []).map(humaniseNumbers),
     usedFallback: Boolean(payload?.used_fallback),
   };
+}
+
+/**
+ * Appends "(2026-08-17 to 2026-09-21)" to a claim naming a specific detected
+ * window, when one can be resolved and the sentence does not already read
+ * like it names a date -- the model is never required to write one into its
+ * own prose, so most claims need this added rather than merely trusted.
+ */
+function appendWindow(
+  text: string,
+  evidenceIds: string[],
+  windowByFactId: Map<string, string>,
+): string {
+  if (/\d{4}-\d{2}-\d{2}/.test(text)) return text;
+  const window = evidenceIds.map((id) => windowByFactId.get(id)).find(Boolean);
+  return window ? `${text} (${window})` : text;
 }
 
 /**
@@ -500,33 +555,61 @@ function buildVerification(
   return { passed: Boolean(payload.passed), violations };
 }
 
+/**
+ * Collapses abstentions by (kpi, reason_code), the same way the engine's own
+ * `render.abstention_summary` does -- several events abstaining for the same
+ * KPI and the same reason is one finding, not several. Net Profit failing
+ * the same causal-design check in two different detected windows is real
+ * (`event_id` differs), but showing it as two identical-looking cards reads
+ * as a duplicate rather than as "this happened twice."
+ */
+function buildAbstentions(
+  abstentions: AskAbstention[],
+): NonNullable<AnalysisResult['abstentions']> {
+  const groups = new Map<string, AskAbstention[]>();
+  for (const a of abstentions) {
+    const key = `${a.kpi} ${a.reason_code}`;
+    const group = groups.get(key);
+    if (group) group.push(a);
+    else groups.set(key, [a]);
+  }
+
+  return [...groups.values()].map((group) => {
+    const first = group[0];
+    return {
+      kpiName: first.kpi,
+      reason: first.message || first.reason_code,
+      whatWouldResolveIt: first.what_would_resolve_it ?? [],
+      eventCount: group.length,
+    };
+  });
+}
+
 function buildContextAlignments(
   engine: AskEnginePayload | undefined,
 ): ContextAlignmentItem[] {
-  const aligned = (engine?.context_alignments ?? []).map((raw) => {
-    const a = raw;
-    return {
-      factorLabel: (a.factor_label as string) ?? '',
+  const aligned = (engine?.context_alignments ?? []).map(
+    (a): ContextAlignmentItem => ({
+      factorLabel: a.factor_label,
       // `ContextAlignment` carries no detail of its own — the label is what the
       // user will recognise as their own point, and the note explains the
       // placement. The unaligned side is where the transcribed sentence lives.
       detail: '',
-      eventId: (a.event_id as string) ?? null,
-      overlapDays: (a.overlap_days as number) ?? null,
-      lagDays: (a.lag_days as number) ?? null,
-      entityMatch: (a.entity_match as string) ?? null,
-      directionAgrees: (a.direction_agrees as boolean | null) ?? null,
-      kpisMoved: (a.kpis_moved as string[]) ?? [],
-      note: (a.note as string) ?? '',
+      eventId: a.event_id,
+      overlapDays: a.overlap_days,
+      lagDays: a.lag_days,
+      entityMatch: a.entity_match,
+      directionAgrees: a.direction_agrees,
+      kpisMoved: a.kpis_moved,
+      note: a.note,
       aligned: true,
-    } satisfies ContextAlignmentItem;
-  });
+    }),
+  );
 
-  const unaligned = (engine?.unaligned_factors ?? []).map((raw) => {
-    const f = raw;
-    return {
-      factorLabel: (f.label as string) ?? '',
-      detail: (f.detail as string) ?? '',
+  const unaligned = (engine?.unaligned_factors ?? []).map(
+    (f): ContextAlignmentItem => ({
+      factorLabel: f.label,
+      detail: f.detail,
       eventId: null,
       overlapDays: null,
       lagDays: null,
@@ -537,8 +620,8 @@ function buildContextAlignments(
         'Stated by the user. Nothing in the detected windows lines up with it. ' +
         'The engine did not measure it and cannot weigh it.',
       aligned: false,
-    } satisfies ContextAlignmentItem;
-  });
+    }),
+  );
 
   return [...aligned, ...unaligned];
 }
@@ -607,6 +690,26 @@ function formatWindow(entry: AskEventEntry): string {
   return start && end ? `${start} to ${end}` : '';
 }
 
+/**
+ * How the engine explained this movement's magnitude -- one label per
+ * *distinct* method actually used, not one per attribution. The router
+ * chooses a causal method separately for each KPI a window's attributions
+ * cover, so "none" (no causal estimate was supportable; only the exact
+ * algebraic split is reported) can legitimately appear more than once for
+ * one event -- printing it that many times just reads as broken text.
+ */
+const CAUSAL_METHOD_LABELS: Record<string, string> = {
+  algebraic_lmdi: 'calculated directly from the formula',
+  mix_decomposition: 'calculated directly from the formula',
+  did: 'compared against a similar, unaffected group over the same period',
+  its: "compared against this metric's own past trend",
+  dml: 'estimated using statistical modelling',
+  // No causal design (a comparison group, a stable pre-period) had enough
+  // clean data behind it, so the only number here is the exact one the
+  // formula gives for free -- not a claim about which driver caused it.
+  none: 'no reliable comparison was possible; only the exact math is shown',
+};
+
 function formatSignificance(
   entry: AskEventEntry,
   confidence: AskFact | undefined,
@@ -614,8 +717,12 @@ function formatSignificance(
 ): string {
   const parts: string[] = [];
   if (confidence) parts.push(`confidence ${confidence.display}`);
-  if (methods.length > 0) {
-    parts.push(methods.map((m) => m.display).join(', '));
+
+  const methodNames = [...new Set(methods.map((m) => m.display))];
+  if (methodNames.length > 0) {
+    parts.push(
+      methodNames.map((name) => CAUSAL_METHOD_LABELS[name] ?? name).join(', '),
+    );
   } else if (entry.deterministic_methods.length > 0) {
     parts.push(entry.deterministic_methods.join(', '));
   }
@@ -634,7 +741,7 @@ function formatSignificance(
 export function attachActions(
   result: AnalysisResult,
   narrative: AskNarrative | null | undefined,
-  factsById: Map<string, AskFact>,
+  factIdsByEvent: Map<string, Set<string>>,
 ): void {
   const actions = narrative?.actions ?? [];
   if (actions.length === 0 || result.cases.length === 0) return;
@@ -653,16 +760,17 @@ export function attachActions(
       monitor: action.monitoring,
     };
 
-    // Route it to the case whose evidence the action cites, when it cites any.
-    const citedEventIds = new Set(
-      action.evidence_ids
-        .map((id) => factsById.get(id))
-        .map((f) => f?.lineage?.event_id)
-        .filter((id): id is string => typeof id === 'string'),
-    );
-
+    // Route it to the case whose own fact ids the action cites -- the same
+    // membership test `attachNarratives` uses, and for the same reason: a
+    // fact's `lineage.event_id` exists only on a contribution fact, so an
+    // action citing a movement fact would otherwise never match any case.
     const target =
-      result.cases.find((c) => citedEventIds.has(c.id)) ?? result.cases[0];
+      result.cases.find((c) => {
+        const ownFactIds = factIdsByEvent.get(c.id);
+        return (
+          ownFactIds && action.evidence_ids.some((id) => ownFactIds.has(id))
+        );
+      }) ?? result.cases[0];
     // The highest-confidence action wins where several land on one case.
     if (!target.action.action) {
       target.action = plan;
@@ -670,20 +778,54 @@ export function attachActions(
   }
 }
 
-/** The single narrative reaches both persona slots — one run, one narrative. */
-export function attachNarratives(result: AnalysisResult): void {
-  const narrative = result.narrative;
-  if (!narrative) return;
+/**
+ * Each case gets only the claims that are actually about it, not the whole
+ * run's narrative broadcast onto every KPI.
+ *
+ * The engine writes one narrative per run, covering every KPI that moved
+ * together -- there is no per-KPI narrative to quote. But each `Claim`
+ * already names the fact ids it rests on (`evidence_ids`), and each
+ * `AskEventEntry` already names its own fact ids (`fact_ids`) -- the same
+ * event id a `KpiCase` is keyed by -- so a claim can be routed to its case by
+ * whether they share a fact. (A fact's own `lineage` cannot do this: a
+ * movement fact's lineage carries no `event_id` at all, only a contribution
+ * fact's does, which would silently drop every `what_happened` claim.) A
+ * claim citing no fact this case owns is left out rather than shown
+ * everywhere, which is what made every case look identical before this.
+ *
+ * TODO: two personas would need two `/ask` runs. One run, one narrative, so
+ * both slots carry the same (now per-case) points rather than inventing a
+ * second voice.
+ */
+export function attachNarratives(
+  result: AnalysisResult,
+  narrative: AskNarrative | null | undefined,
+  factIdsByEvent: Map<string, Set<string>>,
+): void {
+  if (!narrative || result.cases.length === 0) return;
 
-  // TODO: two personas would need two `/ask` runs. One run, one narrative, so
-  // both slots carry the same points rather than inventing a second voice.
-  const points = [
-    narrative.headline,
-    ...narrative.whatHappened,
-    ...narrative.why,
-  ].filter(Boolean);
+  const claims = [...narrative.what_happened, ...narrative.why];
 
   for (const kpiCase of result.cases) {
-    kpiCase.narratives = { operational: points, strategic: points };
+    const ownFactIds = factIdsByEvent.get(kpiCase.id) ?? new Set<string>();
+    const points = claims
+      .filter((claim) => claim.evidence_ids.some((id) => ownFactIds.has(id)))
+      .map((claim) => humaniseNumbers(claim.text));
+
+    // A case with no claim of its own still deserves the headline -- the
+    // run's one-line summary is fair context for any case in it, even one
+    // the narrative did not single out with its own sentence.
+    const withHeadline = [narrative.headline, ...points].filter(Boolean);
+    kpiCase.narratives = { operational: withHeadline, strategic: withHeadline };
+
+    // Named by KPI, not by fact id -- these are never grounded in the fact
+    // table, so there is no `fact_ids` set to check membership against.
+    kpiCase.generalRecommendations = (narrative.general_recommendations ?? [])
+      .filter((rec) => rec.related_kpi === kpiCase.kpiName)
+      .map((rec) => ({
+        relatedKpi: rec.related_kpi,
+        action: rec.action,
+        rationale: rec.rationale,
+      }));
   }
 }

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { clsx } from "clsx";
 import { Search, GitBranch, FileSearch, MessageSquareText } from "lucide-react";
 
@@ -19,8 +20,18 @@ export function PipelineStepper({ active, size = "md" }: { active: string; size?
         const done = i < activeIndex;
         const isActive = i === activeIndex;
         return (
-          <div key={step.key} className="flex flex-1 items-center last:flex-none">
-            <div className={clsx("flex flex-col items-center", isLarge ? "gap-3" : "gap-2")}>
+          // Fragment, not a wrapper div: the circle and the connector that
+          // follows it are separate flex items now, not one column with the
+          // connector squeezed into its leftover space -- that squeeze is what
+          // let a wider label (e.g. "Decompose") steal width from its own
+          // connector and leave every gap a different size.
+          <Fragment key={step.key}>
+            <div
+              className={clsx(
+                "flex shrink-0 flex-col items-center",
+                isLarge ? "w-20 gap-3" : "w-16 gap-2"
+              )}
+            >
               <div
                 className={clsx(
                   "flex items-center justify-center rounded-full border-2 transition-colors duration-500 ease-out",
@@ -57,7 +68,7 @@ export function PipelineStepper({ active, size = "md" }: { active: string; size?
                 />
               </div>
             )}
-          </div>
+          </Fragment>
         );
       })}
     </div>
