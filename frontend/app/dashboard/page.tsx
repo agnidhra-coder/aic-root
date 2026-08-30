@@ -14,6 +14,7 @@ import { TierBadge } from "@/components/TierBadge";
 import { useAuth } from "@/lib/auth-context";
 import {
   ApiError,
+  deleteUploadRequest,
   getAnalysisRequest,
   listUploadsRequest,
   type AnalysisResult,
@@ -36,6 +37,7 @@ function DashboardContent() {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadUploads = useCallback(async () => {
     if (!token) return;
@@ -112,6 +114,32 @@ function DashboardContent() {
     [token, router]
   );
 
+  const handleDelete = useCallback(
+    async (upload: UploadRecord) => {
+      if (!token) return;
+      setDeleteError(null);
+      // Optimistic: the row disappears immediately rather than waiting on the
+      // round trip, since the confirm step already asked once.
+      setUploads((prev) => prev.filter((u) => u.id !== upload.id));
+      if (selectedId === upload.id) {
+        setSelectedId(null);
+        setSummary(null);
+        setSummaryError(null);
+      }
+      try {
+        await deleteUploadRequest(token, upload.id);
+      } catch (err) {
+        setDeleteError(
+          err instanceof ApiError ? err.message : `Failed to delete "${upload.filename}".`
+        );
+        // The delete did not actually happen — put it back rather than leave
+        // the sidebar lying about what still exists.
+        void loadUploads();
+      }
+    },
+    [token, selectedId, loadUploads]
+  );
+
   const tierCounts = useMemo(() => {
     const counts = { EXPLAINED: 0, SUSPECTED: 0, UNEXPLAINED: 0 };
     for (const c of summary?.cases ?? []) counts[c.tier] += 1;
@@ -157,6 +185,11 @@ function DashboardContent() {
         <Group className="min-h-[420px] gap-4" orientation="horizontal">
           <Panel defaultSize="25" minSize="18%" maxSize="40%">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Uploaded files</h2>
+            {deleteError && (
+              <p className="mb-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-600">
+                {deleteError}
+              </p>
+            )}
             {isLoadingUploads ? (
               <p className="text-sm text-slate-400">Loading…</p>
             ) : (
@@ -165,6 +198,7 @@ function DashboardContent() {
                 selectedId={selectedId}
                 onSelect={handleSelect}
                 onUploadClick={() => setIsModalOpen(true)}
+                onDelete={handleDelete}
               />
             )}
           </Panel>

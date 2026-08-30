@@ -329,6 +329,45 @@ export class UploadsService {
     return data as UploadRecord[];
   }
 
+  /**
+   * Delete one of the caller's own uploads, its context document if any, and
+   * its analysis (`analyses.upload_id` cascades). Scoped by `requireUpload`
+   * the same way every other mutating route is, so a user can never delete
+   * (or even discover the existence of) another user's upload by id.
+   *
+   * Storage objects are removed before the row so a failed row delete never
+   * orphans a row pointing at bytes that no longer exist; the reverse order
+   * would risk the opposite (bytes surviving with no row to find them by),
+   * which is the safer failure mode to leave behind.
+   */
+  async deleteUpload(uploadId: string, userId: string): Promise<void> {
+    const upload = await this.requireUpload(uploadId, userId);
+
+    const paths = [upload.storage_path, upload.context_storage_path].filter(
+      (p): p is string => Boolean(p),
+    );
+    if (paths.length > 0) {
+      const { error: storageError } = await this.supabase.client.storage
+        .from(BUCKET)
+        .remove(paths);
+      if (storageError) {
+        this.logger.warn(
+          `Failed to remove storage object(s) for upload ${uploadId}: ${storageError.message}`,
+        );
+      }
+    }
+
+    const { error } = await this.supabase.client
+      .from(TABLE)
+      .delete()
+      .eq('id', uploadId)
+      .eq('user_id', userId);
+
+    if (error) {
+      throw new InternalServerErrorException('Failed to delete upload');
+    }
+  }
+
   private async requireUpload(
     uploadId: string,
     userId: string,

@@ -368,6 +368,13 @@ export function getUploadRequest(token: string, uploadId: string) {
   });
 }
 
+export function deleteUploadRequest(token: string, uploadId: string) {
+  return request<void>(`/uploads/${uploadId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export function getAnalysisRequest(token: string, uploadId: string) {
   return request<AnalysisResult>(`/uploads/${uploadId}/analysis`, {
     headers: { Authorization: `Bearer ${token}` },

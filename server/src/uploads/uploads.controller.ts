@@ -3,7 +3,9 @@ import {
   Body,
   Controller,
   ConflictException,
+  Delete,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Post,
@@ -69,7 +71,9 @@ export class UploadsController {
         );
       }
       const lowerName = contextDoc.originalname.toLowerCase();
-      if (!ALLOWED_CONTEXT_DOC_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {
+      if (
+        !ALLOWED_CONTEXT_DOC_EXTENSIONS.some((ext) => lowerName.endsWith(ext))
+      ) {
         throw new BadRequestException(
           'Context document must be a PDF, DOCX, or TXT file',
         );
@@ -100,6 +104,12 @@ export class UploadsController {
       throw new NotFoundException('Upload not found');
     }
     return upload;
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@Param('id') id: string, @CurrentUser() user: PublicUser) {
+    await this.uploadsService.deleteUpload(id, user.id);
   }
 
   /** The proposed KPI plan, for the accept/reject step. */
