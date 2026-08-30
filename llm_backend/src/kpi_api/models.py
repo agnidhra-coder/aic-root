@@ -41,7 +41,11 @@ from kpi_engine.tenancy import CompanyPaths, company_config
 
 
 class AskRequest(Strict):
-    question: str = Field(description="What you want to know, in plain language.")
+    question: str = Field(
+        default="",
+        description="What you want to know, in plain language. Omit it, or send "
+        "an empty string, to sweep every KPI and report whatever needs attention.",
+    )
 
     persona: Persona | None = Field(
         default=None,

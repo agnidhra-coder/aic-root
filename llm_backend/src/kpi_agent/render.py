@@ -13,6 +13,17 @@ from typing import Any
 from kpi_agent.models import GroundedContext, Narrative, VerificationResult
 
 
+def asked(question: str) -> str:
+    """What to print where the user's question goes, when there was not one.
+
+    Not asking is a supported way to use this -- it means "sweep everything" --
+    so the line has to say that rather than trail off after the em dash. Shared
+    by both renderers and by the terse reports in `graph.py`, because a blank
+    here reads as a bug in every one of them.
+    """
+    return question.strip() or "(nothing asked — a broad sweep of every KPI)"
+
+
 def render_markdown(
     narrative: Narrative,
     context: GroundedContext,
@@ -23,7 +34,7 @@ def render_markdown(
     a = lines.append
 
     a(f"# {narrative.headline}\n")
-    a(f"**Question** — {context.question}  ")
+    a(f"**Question** — {asked(context.question)}  ")
     a(f"**Understood as** — {context.question_restated}  ")
     a(f"**Audience** — {context.persona}  ")
     a(f"**Grain** — {context.time_grain}"
@@ -266,7 +277,7 @@ def render_console(
     plan = Table.grid(padding=(0, 2))
     plan.add_column(style="dim", justify="right")
     plan.add_column()
-    plan.add_row("question", context.question)
+    plan.add_row("question", asked(context.question))
     plan.add_row("understood as", Text(context.question_restated, style="italic"))
     if intent is not None and getattr(intent, "reasoning", None):
         plan.add_row("planner's reasoning", Text(intent.reasoning, style="italic dim"))

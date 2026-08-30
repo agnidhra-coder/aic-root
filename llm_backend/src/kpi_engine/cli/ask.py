@@ -4,10 +4,18 @@
     python -m kpi_engine.cli.ask --company acme-retail "what needs attention?" --persona exec
     python -m kpi_engine.cli.ask --company acme-retail "why did ROAS drop?" --model gemini-3.7-flash
     python -m kpi_engine.cli.ask --company acme-retail "what needs attention?" --no-llm
+    python -m kpi_engine.cli.ask --company acme-retail            # no question at all
 
 Two model calls sit at the ends of this: one turns the question into a validated
 pipeline configuration, one writes the prose. Everything that produces a number
 between them is the deterministic engine, unchanged.
+
+The question is optional, and three ways of not asking one land in the same place:
+omitting it, asking something vague ("how are we doing?"), and stating context
+without an ask ("we ran a billboard campaign in the West"). None of them names a
+KPI, so all three leave `kpis` empty, which is what puts the run in survey mode.
+The third still has its context transcribed -- `exogenous` is filled independently
+of whether the question narrowed anything.
 
 Ask about a KPI, not a driver column. Which KPIs are answerable depends on the
 company: for `acme-retail` the set is CAC, ROAS, Net Profit Margin, Conversion
@@ -93,7 +101,10 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("question", help="What you want to know, in plain language.")
+    parser.add_argument(
+        "question", nargs="?", default="",
+        help="What you want to know, in plain language. Omit it to let the engine "
+             "sweep every KPI and report whatever needs attention.")
     parser.add_argument("--persona", default=None, choices=["analyst", "exec", "ops"],
                         help="Who is asking. Inferred from the question when omitted.")
     add_company_argument(parser)

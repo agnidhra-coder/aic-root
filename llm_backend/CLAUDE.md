@@ -77,8 +77,12 @@ uv run python -m kpi_engine.cli.ask --company $C --persona analyst \
   "Why did CAC rise in the West in late March 2026? We ran an unlogged billboard \
 campaign in the West from 2026-03-16 to 2026-03-31."
 # name no KPI and the run sweeps every declared one, reporting eda's trend and
-# seasonality findings alongside whatever the detector flags -- or instead of it
+# seasonality findings alongside whatever the detector flags -- or instead of it.
+# these three are the same instruction written three ways: vague, absent, context-only
 uv run python -m kpi_engine.cli.ask --company $C "how are we doing?" --persona exec
+uv run python -m kpi_engine.cli.ask --company $C --persona exec
+uv run python -m kpi_engine.cli.ask --company $C --persona exec \
+  "We ran an unlogged billboard campaign in the West from 2026-03-16 to 2026-03-31."
 # force the configuration rather than trusting the planner (see README for the two demo questions)
 uv run python -m kpi_engine.cli.ask --company $C "..." --persona analyst \
     --time-grain week --entity-keys Supplier
@@ -462,6 +466,15 @@ what became of it, and a tenant whose data drifts rather than spikes has no
   "ground the figure" but "there are no figures here". Do not fold it into
   `actions` to make one table: the separation is what tells a reader which half
   was measured.
+- **An absent question is a supported input, not an error.** Empty, vague ("what
+  needs attention?"), and context-only ("we ran a billboard campaign in the West")
+  are the same instruction written three ways: none names a KPI, so all three
+  leave `AnalysisIntent.kpis` empty and land in survey mode by the ordinary
+  derivation in `graph.py`. There is no branch keyed on the question string being
+  blank, and there must not be one — the mode follows from what was planned, not
+  from what was typed. Exogenous transcription is independent of all this: a
+  context-only message fills `exogenous` *and* sweeps every KPI, because
+  recording what the user said is not a substitute for looking at the data.
 - **A user's context is a hypothesis, never evidence.** An `ExogenousFactor` is
   transcribed from the question, not measured. `exogenous.align_factors` places it
   against an event by date and entity arithmetic alone — a coincidence in time, and

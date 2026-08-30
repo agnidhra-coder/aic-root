@@ -32,6 +32,7 @@ from kpi_engine.contracts.payloads import (
 from kpi_engine.scenarios.scm_generator import generate_scm_panel
 
 from kpi_agent import build_graph, stream_agent
+from kpi_agent import intent as intent_mod
 from kpi_agent.llm import Usage
 from kpi_agent.intent import validate_intent
 from kpi_agent.linking import link_events
@@ -341,6 +342,65 @@ def _intent(**kw) -> AnalysisIntent:
     return AnalysisIntent(**base)
 
 
+@pytest.mark.parametrize(
+    "question",
+    [
+        "",
+        "   ",
+        "how are we doing?",
+        "We ran an unlogged billboard campaign in the West last week.",
+    ],
+    ids=["empty", "blank", "vague", "context-only"],
+)
+def test_three_ways_of_not_naming_a_kpi_are_one_instruction(question, source_triples):
+    """Empty, vague, and context-only differ only in what the user typed.
+
+    None of them narrows the analysis, so all of them must reach survey mode by
+    the same route -- an empty `kpis` list -- rather than through three branches
+    that could drift apart. The mode is derived from the plan, so what is pinned
+    here is that nothing about the question string diverts it.
+    """
+    resolved, _ = validate_intent(_intent(kpis=[]), source_triples)
+    assert resolved is not None
+    assert resolved.kpis == []
+
+    plan = intent_mod.default_intent(question, "exec", source_triples)
+    assert plan.kpis == []
+    # `graph._validate`'s derivation, which is what actually sets the mode.
+    assert not plan.kpis
+
+
+def test_an_absent_question_still_says_what_it_decided_to_run(source_triples):
+    """A blank restatement leaves `**Understood as** —` trailing into nothing.
+
+    Not asking is a supported way to use this, so the run has to give its own
+    account of what it did instead of echoing the emptiness back.
+    """
+    silent = intent_mod.default_intent("", "exec", source_triples)
+    assert silent.question_restated.strip()
+    assert "sweep" in silent.question_restated.lower()
+
+    asked = intent_mod.default_intent("why did CAC rise?", "exec", source_triples)
+    assert asked.question_restated == "why did CAC rise?"
+
+
+def test_context_survives_a_question_that_narrows_nothing(source_triples):
+    """A context-only message fills `exogenous` AND sweeps every KPI.
+
+    The two are independent: transcribing what the user said is not a substitute
+    for looking at the data, and sweeping the data is not a reason to drop what
+    they said. A run that did one instead of the other would answer half.
+    """
+    resolved, _ = validate_intent(
+        _intent(kpis=[], exogenous=[_factor(entity_key="Region", entity_value="West")]),
+        source_triples,
+    )
+    assert resolved is not None
+    assert resolved.kpis == []
+    assert len(resolved.exogenous) == 1
+    assert resolved.exogenous[0].label == "heatwave"
+
+
 def test_an_unknown_kpi_is_dropped_when_a_real_one_remains(source_triples):
     resolved, problems = validate_intent(
         _intent(kpis=["CAC", "Customer Delight Index"]), source_triples
@@ -578,6 +638,24 @@ def test_the_no_model_path_runs_when_no_grain_was_forced():
     )
     assert state["intent"].time_grain == "week"
     assert state["report_markdown"]
+
+
+@pytest.mark.slow
+def test_a_run_with_no_question_at_all_produces_a_report():
+    """The whole graph, end to end, with nothing asked.
+
+    Every layer above this now permits an absent question -- the CLI positional is
+    optional and `AskRequest.question` defaults to empty -- so what has to hold is
+    that the graph reaches a written report rather than a blank page or a
+    clarification. It sweeps, because nothing narrowed it.
+    """
+    state = _invoke(None, question="", run_id="pytest-no-question")
+    assert state["intent"].kpis == []
+    assert state["survey"]
+    assert state["report_markdown"]
+    # The report must account for itself rather than trailing off after the dash.
+    assert "**Question** — \n" not in state["report_markdown"]
+    assert state["context"].question_restated.strip()
 
 
 @pytest.mark.slow

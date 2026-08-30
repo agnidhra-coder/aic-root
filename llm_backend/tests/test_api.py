@@ -115,6 +115,27 @@ def test_a_misspelled_field_is_refused_rather_than_ignored(client):
     assert response.status_code == 422
 
 
+def test_a_request_may_omit_the_question_entirely(client):
+    """Asking nothing is a supported request, not a malformed one.
+
+    A caller with no question in hand -- a dashboard opening on a fresh upload,
+    say -- should get the sweep rather than a 422 telling them to think of
+    something to ask. The field defaults to empty, and empty means "all KPIs".
+    """
+    assert AskRequest().question == ""
+
+    response = client.post(
+        _url("/ask/sync"),
+        json={"no_llm": True, "persona": "exec", "time_grain": "week",
+              "entity_keys": ["Region"], "top_events": 2},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["report"]["report_markdown"]
+    # Nothing narrowed it, so nothing was narrowed: the sweep is the answer.
+    assert body["plan"]["intent"]["kpis"] == []
+
+
 def test_entity_keys_of_empty_list_means_total_level_not_unset():
     """`None` and `[]` are different instructions and must stay different.
 

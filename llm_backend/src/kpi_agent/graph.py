@@ -454,7 +454,7 @@ def clarify(state: AgentState) -> dict[str, Any]:
     question = state.get("clarification") or "I need more detail to answer that."
     body = (
         f"# I need one clarification\n\n"
-        f"**You asked** — {state['question']}\n\n"
+        f"**You asked** — {render.asked(state['question'])}\n\n"
         f"{question}\n\n"
         "Nothing was computed, because running the wrong analysis and reporting it "
         "confidently is worse than asking.\n"
@@ -480,7 +480,7 @@ def no_findings(state: AgentState) -> dict[str, Any]:
     results = state.get("results") or {}
     body = (
         f"# No material movement found\n\n"
-        f"**You asked** — {state['question']}\n\n"
+        f"**You asked** — {render.asked(state['question'])}\n\n"
         f"**Searched** — {resolved.time_grain if resolved else 'default'} grain, "
         f"{slice_}, over {period}, across "
         f"{', '.join(results) or 'no source'}.\n\n"
