@@ -1,0 +1,11 @@
+.venv
+.env
+__pycache__
+*.pyc
+.pytest_cache
+tests
+docs
+*.md
+user/orbit-grocers
+user/testco
+user/u-03f0ccfc*

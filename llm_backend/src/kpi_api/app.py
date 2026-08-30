@@ -28,9 +28,14 @@ the path strengthens its guard rather than weakening it: it now arrives already
 decoded, so `_artefact` sees the `../..` a client actually sent instead of
 whatever survived path normalisation, and refuses it with a 400.
 
-There is still no authentication here, and `GET /companies` lists every tenant
-while `POST /companies` writes to disk. This service is meant to sit behind the
-NestJS tier on a private network; `__main__` binds 127.0.0.1 for that reason.
+There is still no authentication of individual callers -- no user, no scoping
+-- and `GET /companies` lists every tenant while `POST /companies` writes to
+disk. This service is meant to sit behind the NestJS tier on a private
+network; `__main__` binds 127.0.0.1 for that reason. Where it must be
+reachable over the public internet instead (a deployed demo, `server` and this
+service on different hosts), `KPI_API_SHARED_SECRET` gates every route but
+`/health` behind one shared header -- coarse, "is this NestJS or not", not
+per-user auth.
 
 The awkward part is that the agent is entirely synchronous and mostly CPU-bound
 -- pandas, statsmodels, ruptures -- with two blocking model calls of up to 150s
@@ -50,7 +55,8 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from kpi_agent.llm import DEFAULT_MODEL, LlmUnavailable, build_llm
 from kpi_engine import SCHEMA_VERSION
@@ -121,6 +127,30 @@ RunId = Annotated[
 ]
 
 
+class _RequireSharedSecret(BaseHTTPMiddleware):
+    """Reject every request missing `X-KPI-Api-Key`, when a secret is configured.
+
+    This service has no authentication by design when reached over a private
+    network (see the module docstring), but a deployed instance is reachable
+    from the public internet, and `POST /companies` writes to disk while
+    `GET /companies`/`GET /company` read tenant data -- a public, unauthenticated
+    instance would let anyone provision or read another judge's company. Unset
+    `KPI_API_SHARED_SECRET` (the local, behind-NestJS deployment) is a no-op, so
+    nothing changes for a judge running this on localhost per RUNNING.md.
+    """
+
+    def __init__(self, app: Any, secret: str) -> None:
+        super().__init__(app)
+        self._secret = secret
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        if request.url.path == "/health":
+            return await call_next(request)
+        if request.headers.get("x-kpi-api-key") != self._secret:
+            return JSONResponse({"detail": "Missing or invalid X-KPI-Api-Key"}, status_code=401)
+        return await call_next(request)
+
+
 def _sse(name: str, payload: dict[str, Any]) -> bytes:
     """Encode one event.
 
@@ -153,6 +183,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    secret = os.environ.get("KPI_API_SHARED_SECRET", "").strip()
+    if secret:
+        app.add_middleware(_RequireSharedSecret, secret=secret)
 
     logbus.install()
     app.state.runs = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
