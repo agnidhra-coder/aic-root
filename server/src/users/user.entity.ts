@@ -3,6 +3,11 @@ export interface UserRecord {
   email: string;
   password_hash: string;
   name: string;
+  /**
+   * The user's tenant in the Python KPI engine, created lazily on first upload.
+   * Null until then. One company per user, derived from `id` and never reused.
+   */
+  company_slug: string | null;
   created_at: string;
 }
 

@@ -31,7 +31,9 @@ export interface EvidenceItem {
   kind: EvidenceSourceKind;
   label: string;
   detail: string;
-  contribution: number;
+  // `null` means no share of the move is defined for this item (e.g. an
+  // abstention, or a zero-delta KPI) -- distinct from a real contribution of 0%.
+  contribution: number | null;
   citation: string;
   aligned: boolean;
 }

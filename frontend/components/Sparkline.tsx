@@ -9,6 +9,12 @@ export function Sparkline({
   width?: number;
   height?: number;
 }) {
+  // The real engine emits no per-period series, so `data` is routinely empty.
+  // `Math.min(...[])` is Infinity, which would put NaN into every coordinate.
+  if (data.length < 2) {
+    return <svg width={width} height={height} aria-hidden />;
+  }
+
   const min = Math.min(...data);
   const max = Math.max(...data);
   const range = max - min || 1;

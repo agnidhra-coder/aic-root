@@ -3,35 +3,91 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CalendarCheck2 } from "lucide-react";
+import { ArrowLeft, CalendarCheck2, Search, GitBranch, FileSearch, MessageSquareText } from "lucide-react";
+import { clsx } from "clsx";
 import { Header } from "@/components/Header";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { PipelineStepper } from "@/components/PipelineStepper";
 import { TierBadge } from "@/components/TierBadge";
 import { EvidenceCard } from "@/components/EvidenceCard";
 import { ActionPlanCard } from "@/components/ActionPlanCard";
 import { DriverBreakdownCard } from "@/components/DriverBreakdownCard";
 import { useAuth } from "@/lib/auth-context";
+import { getCachedAnalysis, setCachedAnalysis } from "@/lib/analysis-cache";
 import { ApiError, getAnalysisRequest, type KpiCase } from "@/lib/api";
 
-const narrativeTabs: { key: string; label: string }[] = [
-  { key: "operational", label: "Operational" },
-  { key: "strategic", label: "Strategic" },
+const stages = [
+  { key: "detect", label: "Detect", icon: Search },
+  { key: "decompose", label: "Decompose", icon: GitBranch },
+  { key: "explain", label: "Explain", icon: FileSearch },
+  { key: "act", label: "Act", icon: MessageSquareText },
 ];
+
+/** Tapping a circle shows that stage's section below — always violet-outlined, since every stage is equally reachable rather than a progress readout. */
+function StageSelector({ active, onSelect }: { active: string; onSelect: (key: string) => void }) {
+  return (
+    <div className="flex items-center justify-around">
+      {stages.map((stage) => {
+        const Icon = stage.icon;
+        const isActive = stage.key === active;
+        return (
+          <button
+            key={stage.key}
+            type="button"
+            onClick={() => onSelect(stage.key)}
+            className="flex flex-col items-center gap-3"
+          >
+            <div
+              className={clsx(
+                "flex h-14 w-14 items-center justify-center rounded-full border-2 transition-all duration-300 ease-out",
+                isActive
+                  ? "scale-110 border-accent-500 bg-accent-500 text-white shadow-md shadow-accent-200"
+                  : "border-accent-500 bg-white text-accent-600 hover:bg-accent-50"
+              )}
+            >
+              <Icon size={24} />
+            </div>
+            <span
+              className={clsx(
+                "text-base font-semibold transition-colors duration-300 ease-out",
+                isActive ? "text-accent-600" : "text-slate-600"
+              )}
+            >
+              {stage.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The one case this page needs, from whichever `AnalysisResult` has it. */
+function findCase(uploadId: string, caseId: string): KpiCase | undefined {
+  return getCachedAnalysis(uploadId)?.cases.find((c) => c.id === caseId);
+}
 
 function CaseDetailContent() {
   const { uploadId, caseId } = useParams<{ uploadId: string; caseId: string }>();
   const { token } = useAuth();
-  const [kpiCase, setKpiCase] = useState<KpiCase | null>(null);
+  // Seeded synchronously from the results page's cache — arriving here via
+  // "View analysis" never needs to re-fetch or re-flash "Loading…".
+  const [kpiCase, setKpiCase] = useState<KpiCase | null>(
+    () => findCase(uploadId, caseId) ?? null
+  );
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState(narrativeTabs[0].key);
+  const [isLoading, setIsLoading] = useState(!kpiCase);
+  const [stage, setStage] = useState("detect");
 
   useEffect(() => {
+    // Already have it (from cache, or a previous run of this effect) —
+    // nothing to fetch.
+    if (findCase(uploadId, caseId)) return;
+
     async function load() {
       if (!token) return;
       try {
         const result = await getAnalysisRequest(token, uploadId);
+        setCachedAnalysis(uploadId, result);
         const found = result.cases.find((c) => c.id === caseId);
         if (!found) {
           setError("This case could not be found in the upload's analysis.");
@@ -75,117 +131,129 @@ function CaseDetailContent() {
                 <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
                   {kpiCase.detect.headline}
                 </h1>
+                {kpiCase.window && (
+                  <p className="mt-1.5 text-base text-slate-500">{kpiCase.window}</p>
+                )}
               </div>
               <TierBadge tier={kpiCase.tier} className="mt-1" />
             </div>
 
             <div className="mb-10 rounded-2xl border border-slate-200 bg-slate-50/60 p-8">
-              <PipelineStepper active="act" size="lg" />
+              <StageSelector active={stage} onSelect={setStage} />
             </div>
 
-            <section className="mb-10">
-              <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">1 · Detect</h2>
-              <div className="rounded-xl border border-slate-200 bg-white p-6">
-                <p className="text-base font-medium text-slate-900">{kpiCase.detect.headline}</p>
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="rounded-lg bg-slate-50 px-4 py-3">
-                    <p className="text-sm text-slate-400">Statistical significance</p>
-                    <p className="mt-0.5 text-base text-slate-700">{kpiCase.detect.statSignificance}</p>
-                  </div>
-                  <div className="rounded-lg bg-slate-50 px-4 py-3">
-                    <p className="text-sm text-slate-400">Business-impact floor</p>
-                    <p className="mt-0.5 text-base text-slate-700">{kpiCase.detect.businessImpact}</p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section className="mb-10">
-              <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">2 · Decompose</h2>
-              <div className="flex flex-wrap items-center gap-3">
-                {kpiCase.decompose.map((step, i) => (
-                  <div key={step.dimension} className="flex items-center gap-3">
-                    <div className="rounded-xl border border-slate-200 bg-white px-5 py-4">
-                      <p className="text-sm text-slate-400">{step.dimension}</p>
-                      <p className="text-base font-semibold text-slate-900">{step.narrowedTo}</p>
-                      <p className="mt-1 text-sm text-slate-500">{step.note}</p>
+            <div key={stage} className="animate-stage-in">
+              {stage === "detect" && (
+                <section className="mb-10">
+                  <div className="rounded-xl border border-slate-200 bg-white p-6">
+                    <p className="text-base font-medium text-slate-900">{kpiCase.detect.headline}</p>
+                    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="rounded-lg bg-slate-50 px-4 py-3">
+                        <p className="text-sm text-slate-400">Statistical significance</p>
+                        <p className="mt-0.5 text-base text-slate-700">{kpiCase.detect.statSignificance}</p>
+                      </div>
+                      <div className="rounded-lg bg-slate-50 px-4 py-3">
+                        <p className="text-sm text-slate-400">Business-impact floor</p>
+                        <p className="mt-0.5 text-base text-slate-700">{kpiCase.detect.businessImpact}</p>
+                      </div>
                     </div>
-                    {i < kpiCase.decompose.length - 1 && <span className="text-lg text-slate-300">→</span>}
                   </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="mb-10">
-              <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">
-                Driver KPIs — what&apos;s moving {kpiCase.kpiName}
-              </h2>
-              <DriverBreakdownCard drivers={kpiCase.driverBreakdown} />
-            </section>
-
-            <section className="mb-10">
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-base font-semibold uppercase tracking-wide text-slate-400">
-                  3 · Explain — Evidence
-                </h2>
-                <span className="text-base font-medium text-slate-500">
-                  Combined contribution:{" "}
-                  <span className="font-semibold text-slate-900">{kpiCase.contributionTotal}%</span>
-                </span>
-              </div>
-              {kpiCase.evidence.length === 0 ? (
-                <p className="rounded-xl bg-slate-50 px-6 py-5 text-base text-slate-400">
-                  No evidence sources yet — this is a simulated analysis. Real evidence fusion is on the roadmap.
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-                  {kpiCase.evidence.map((item) => (
-                    <EvidenceCard key={item.label} item={item} />
-                  ))}
-                </div>
+                </section>
               )}
-            </section>
 
-            <section className="mb-10">
-              <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">
-                4 · Act — Narrative
-              </h2>
-              <div className="rounded-xl border border-slate-200 bg-white">
-                <div className="flex border-b border-slate-100 px-2 pt-2">
-                  {narrativeTabs.map((tab) => (
-                    <button
-                      key={tab.key}
-                      onClick={() => setActiveTab(tab.key)}
-                      className={
-                        "rounded-t-lg px-5 py-3 text-base font-medium transition " +
-                        (tab.key === activeTab
-                          ? "border-b-2 border-accent-500 text-accent-600"
-                          : "text-slate-400 hover:text-slate-600")
-                      }
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="p-6">
-                  <p className="text-lg leading-relaxed text-slate-700">
-                    {kpiCase.narratives[activeTab] ?? "No narrative available."}
-                  </p>
-                </div>
-              </div>
-            </section>
+              {stage === "decompose" && (
+                <>
+                  <section className="mb-10">
+                    <div className="flex flex-wrap items-center gap-3">
+                      {kpiCase.decompose.map((step, i) => (
+                        <div key={step.dimension} className="flex items-center gap-3">
+                          <div className="rounded-xl border border-slate-200 bg-white px-5 py-4">
+                            <p className="text-sm text-slate-400">{step.dimension}</p>
+                            <p className="text-base font-semibold text-slate-900">{step.narrowedTo}</p>
+                            <p className="mt-1 text-sm text-slate-500">{step.note}</p>
+                          </div>
+                          {i < kpiCase.decompose.length - 1 && (
+                            <span className="text-lg text-slate-300">→</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
 
-            <section className="mb-10">
-              <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">
-                Recommended action
-              </h2>
-              <ActionPlanCard action={kpiCase.action} />
-            </section>
+                  <section className="mb-10">
+                    <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">
+                      Driver KPIs — what&apos;s moving {kpiCase.kpiName}
+                    </h2>
+                    <DriverBreakdownCard drivers={kpiCase.driverBreakdown} />
+                  </section>
+                </>
+              )}
 
-            <section className="mb-4 flex items-center gap-3 rounded-xl bg-slate-50 px-6 py-5 text-base text-slate-500">
-              <CalendarCheck2 size={19} className="text-slate-400" />
-              6 · Feedback & Grade — check back on {kpiCase.checkBackDate} to see if the predicted impact held.
-            </section>
+              {stage === "explain" && (
+                <section className="mb-10">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-base font-semibold uppercase tracking-wide text-slate-400">Evidence</h2>
+                    <span className="text-base font-medium text-slate-500">
+                      Combined contribution:{" "}
+                      <span className="font-semibold text-slate-900">{kpiCase.contributionTotal}%</span>
+                    </span>
+                  </div>
+                  {kpiCase.evidence.length === 0 ? (
+                    <p className="rounded-xl bg-slate-50 px-6 py-5 text-base text-slate-400">
+                      The engine attributed no drivers to this movement. That is an abstention, not a
+                      gap: it found the move but not enough evidence to say what caused it.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+                      {kpiCase.evidence.map((item, index) => (
+                        // `label` is not guaranteed unique — two contribution facts
+                        // can produce the same text (e.g. via different attribution
+                        // paths), so the index disambiguates them, as in
+                        // DriverBreakdownCard.
+                        <EvidenceCard key={`${item.label}-${index}`} item={item} />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {stage === "act" && (
+                <>
+                  {kpiCase.action.action && (
+                    <section className="mb-10">
+                      <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">
+                        Recommended action
+                      </h2>
+                      <ActionPlanCard action={kpiCase.action} />
+                    </section>
+                  )}
+
+                  <section className="mb-10">
+                    <h2 className="mb-4 text-base font-semibold uppercase tracking-wide text-slate-400">
+                      Narrative
+                    </h2>
+                    <div className="rounded-xl border border-slate-200 bg-white p-6">
+                      {kpiCase.narratives.operational?.length ? (
+                        <ul className="list-disc space-y-2 pl-5 text-lg leading-relaxed text-slate-700">
+                          {kpiCase.narratives.operational.map((point, i) => (
+                            <li key={i}>{point}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-lg leading-relaxed text-slate-700">No narrative available.</p>
+                      )}
+                    </div>
+                  </section>
+
+                  {kpiCase.action.monitor && (
+                    <section className="mb-4 flex items-center gap-3 rounded-xl bg-slate-50 px-6 py-5 text-base text-slate-500">
+                      <CalendarCheck2 size={19} className="text-slate-400" />
+                      Monitor: {kpiCase.action.monitor}
+                    </section>
+                  )}
+                </>
+              )}
+            </div>
           </>
         )}
       </main>

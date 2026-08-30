@@ -1,11 +1,16 @@
 "use client";
 
 import { clsx } from "clsx";
-import { CheckCircle2, FileSpreadsheet, Loader2, Plus, XCircle } from "lucide-react";
+import { CheckCircle2, CircleDot, FileSpreadsheet, Loader2, Plus, XCircle } from "lucide-react";
 import type { UploadRecord, UploadStatus } from "@/lib/api";
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
+}
+
+/** The two states that are waiting on the user rather than on the engine. */
+function needsAttention(status: UploadStatus): boolean {
+  return status === "awaiting_plan" || status === "awaiting_question";
 }
 
 function StatusIndicator({ status }: { status: UploadStatus }) {
@@ -14,6 +19,9 @@ function StatusIndicator({ status }: { status: UploadStatus }) {
       return <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />;
     case "failed":
       return <XCircle size={14} className="shrink-0 text-rose-500" />;
+    case "awaiting_plan":
+    case "awaiting_question":
+      return <CircleDot size={14} className="shrink-0 text-amber-500" />;
     default:
       return <Loader2 size={14} className="shrink-0 animate-spin text-slate-400" />;
   }
@@ -23,6 +31,14 @@ function statusLabel(status: UploadStatus): string {
   switch (status) {
     case "pending":
       return "Queued";
+    case "planning":
+      return "Reading your columns…";
+    case "awaiting_plan":
+      return "Choose your KPIs";
+    case "confirming":
+      return "Configuring…";
+    case "awaiting_question":
+      return "Ask a question";
     case "analyzing":
       return "Analyzing…";
     case "ready":
@@ -63,19 +79,22 @@ export function UploadsSidebar({
     <ul className="space-y-1.5">
       {uploads.map((upload) => {
         const isReady = upload.status === "ready";
+        // A file waiting on the user is clickable too — that is how they get
+        // back to the KPI choice or the question they never finished.
+        const isClickable = isReady || needsAttention(upload.status);
         const isSelected = upload.id === selectedId;
         return (
           <li key={upload.id}>
             <button
               type="button"
-              disabled={!isReady}
+              disabled={!isClickable}
               onClick={() => onSelect(upload)}
               className={clsx(
                 "flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition",
                 isSelected
                   ? "border-accent-500 bg-accent-50"
                   : "border-slate-200 bg-white hover:border-slate-300",
-                !isReady && "cursor-not-allowed opacity-60"
+                !isClickable && "cursor-not-allowed opacity-60"
               )}
             >
               <FileSpreadsheet size={16} className="mt-0.5 shrink-0 text-slate-400" />

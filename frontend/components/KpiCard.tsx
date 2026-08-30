@@ -14,10 +14,7 @@ export function KpiCard({ kpi }: { kpi: KpiSummary }) {
     : isPositive;
 
   return (
-    <Link
-      href={`/cases/${kpi.id}`}
-      className="group flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md hover:border-slate-300"
-    >
+    <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md hover:border-slate-300">
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-medium text-slate-500">{kpi.name}</p>
@@ -47,10 +44,13 @@ export function KpiCard({ kpi }: { kpi: KpiSummary }) {
 
       <div className="flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
         <span>Updated {kpi.updatedAt}</span>
-        <span className="font-medium text-slate-500 opacity-0 transition group-hover:opacity-100">
+        <Link
+          href={`/cases/${kpi.id}`}
+          className="font-medium text-accent-600 transition hover:text-accent-700"
+        >
           View analysis →
-        </span>
+        </Link>
       </div>
-    </Link>
+    </div>
   );
 }

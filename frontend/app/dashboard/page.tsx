@@ -58,7 +58,9 @@ function DashboardContent() {
 
   // Poll while anything is still pending/analyzing, so sidebar status updates live.
   useEffect(() => {
-    const hasInFlight = uploads.some((u) => u.status === "pending" || u.status === "analyzing");
+    const hasInFlight = uploads.some((u) =>
+      ["pending", "planning", "confirming", "analyzing"].includes(u.status)
+    );
     if (!hasInFlight) return;
 
     const interval = setInterval(() => {
@@ -83,6 +85,14 @@ function DashboardContent() {
   const handleSelect = useCallback(
     async (upload: UploadRecord) => {
       if (!token) return;
+
+      // A file still waiting on the user has no analysis to summarise; send
+      // them back to the step they left off at instead.
+      if (upload.status === "awaiting_plan" || upload.status === "awaiting_question") {
+        router.push(`/uploads/${upload.id}/setup`);
+        return;
+      }
+
       setSelectedId(upload.id);
       setSummary(null);
       setSummaryError(null);
@@ -96,7 +106,7 @@ function DashboardContent() {
         setIsLoadingSummary(false);
       }
     },
-    [token]
+    [token, router]
   );
 
   const tierCounts = useMemo(() => {
@@ -230,7 +240,9 @@ function DashboardContent() {
           onClose={() => setIsModalOpen(false)}
           onUploaded={(upload) => {
             setIsModalOpen(false);
-            router.push(`/uploads/${upload.id}/analysis`);
+            // The upload is not analysed yet — the user picks their KPIs and
+            // asks a question first.
+            router.push(`/uploads/${upload.id}/setup`);
           }}
         />
       )}

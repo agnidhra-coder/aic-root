@@ -45,13 +45,21 @@ export function EvidenceCard({ item }: { item: EvidenceItem }) {
       <div className="mt-4">
         <div className="flex items-center justify-between text-sm text-slate-400">
           <span>Contribution</span>
-          <span className="font-medium text-slate-600">{item.contribution}%</span>
+          <span className="font-medium text-slate-600">
+            {item.contribution === null ? "not defined" : `${item.contribution}%`}
+          </span>
         </div>
         <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-          <div
-            className={clsx("h-full rounded-full", item.aligned ? "bg-accent-500" : "bg-slate-300")}
-            style={{ width: `${item.contribution}%` }}
-          />
+          {item.contribution !== null && (
+            <div
+              className={clsx("h-full rounded-full", item.aligned ? "bg-accent-500" : "bg-slate-300")}
+              // A share can exceed 100% (several drivers can each move a KPI by
+              // more than its net change when they partly offset), and CSS
+              // treats a negative width as invalid, so clamp the bar itself
+              // without touching the number shown above.
+              style={{ width: `${Math.min(100, Math.abs(item.contribution))}%` }}
+            />
+          )}
         </div>
       </div>
 
