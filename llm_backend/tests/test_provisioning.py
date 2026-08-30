@@ -141,6 +141,38 @@ def test_a_failed_creation_leaves_no_half_made_company(client, sandbox):
     assert not (sandbox / "ghost-two").exists()
 
 
+def test_recreating_a_folder_whose_registry_entry_was_lost_reregisters_it(
+    client, sandbox
+):
+    """A folder can outlive its registry entry -- `metadata.yaml` reset without
+    `user/` being touched. `POST /companies` on that same slug must not
+    `shutil.rmtree` real data to satisfy `force`; it should recognise the
+    folder still validates and re-register it instead.
+    """
+    assert _create(client).status_code == 201
+    marker = sandbox / "demo-co" / "configs" / "semantics"
+    assert marker.is_dir()
+
+    # Simulate the drift: drop the registry entry, leave the folder alone.
+    (sandbox / "metadata.yaml").write_text('schema_version: "1.0"\ncompanies: []\n')
+    forget_company("demo-co")
+    assert "demo-co" not in {c["company_id"] for c in client.get("/companies").json()}
+
+    response = _create(client, display_name="Recovered Co")
+    assert response.status_code == 201
+    assert response.json()["company_id"] == "demo-co"
+    # Re-registered from what was already on disk, not recreated from a
+    # template -- the display name from *before* the drift survives.
+    assert response.json()["display_name"] == "Demo Co"
+    assert marker.is_dir()
+
+
+def test_a_slug_registered_and_on_disk_is_still_a_genuine_conflict(client):
+    """The self-healing path must not swallow a real duplicate-slug fight."""
+    assert _create(client).status_code == 201
+    assert _create(client, display_name="Impostor").status_code == 409
+
+
 # --------------------------------------------------------------------------- #
 # Attaching data
 # --------------------------------------------------------------------------- #

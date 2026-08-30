@@ -69,6 +69,7 @@ from kpi_engine.provisioning import (
     attach_source_data,
     create_company,
     list_templates,
+    reregister_company,
 )
 from kpi_engine.tenancy import (
     CompanyConfigMissing,
@@ -231,7 +232,18 @@ def create_app() -> FastAPI:
                 notes=req.notes,
             )
         except CompanyExists as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            # Two different things raise this: the slug is already registered
+            # (a real conflict), or its folder is on disk but the registry
+            # entry was lost independently -- `metadata.yaml` reset without
+            # `user/` being touched. Only the second is self-healing: closing
+            # a registry gap for a folder that already validates, never
+            # touching its data. `reregister_company` re-raises `CompanyExists`
+            # itself when the slug turns out to already be registered after
+            # all, so that path still surfaces the original 409 untouched.
+            try:
+                paths = reregister_company(req.company_id)
+            except ProvisioningError:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ProvisioningError as exc:
             # Includes an unknown template and an already-claimed supabase id:
             # both are the caller's input, not a server fault.

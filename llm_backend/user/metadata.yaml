@@ -28,3 +28,12 @@ companies:
   active: true
   external_ids:
     supabase_user_ids: []
+- company_id: u-03f0ccfc-retail
+  display_name: Agnidhra Sinha
+  domains:
+  - retail
+  created_at: '2026-08-30'
+  path: ''
+  active: true
+  external_ids:
+    supabase_user_ids: []

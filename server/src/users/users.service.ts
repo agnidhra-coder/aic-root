@@ -34,7 +34,18 @@ export class UsersService {
     domain: PythonDomain,
   ): Promise<string> {
     const existing = await this.findCompany(user.id, domain);
-    if (existing) return existing.company_slug;
+    if (existing) {
+      // This table is NestJS's own record, not Python's -- if Python's
+      // workspace was ever reset or never actually got created (e.g. its
+      // filesystem state was wiped or reverted independently), this row
+      // would otherwise keep pointing at a company that 404s on every call.
+      // Reconcile once instead of trusting the mapping blindly.
+      const stillExists = await this.python.getCompany(existing.company_slug);
+      if (stillExists) return existing.company_slug;
+
+      await this.createCompany(existing.company_slug, user, domain, true);
+      return existing.company_slug;
+    }
 
     const slug = generateCompanySlug(user.id, domain);
 
@@ -105,6 +116,12 @@ export class UsersService {
    * rather than surfaced as a real provisioning failure. Any other error
    * (an unknown template, a duplicate slug) is a real failure and still
    * propagates.
+   *
+   * A 409 from a folder that exists but was not registered (a registry
+   * reset that did not also touch the filesystem) is handled entirely on
+   * the Python side — `POST /companies` re-registers that folder itself
+   * before ever returning the conflict here, so a 409 reaching this catch
+   * is always a genuine one and is left to propagate.
    */
   private async createCompany(
     slug: string,

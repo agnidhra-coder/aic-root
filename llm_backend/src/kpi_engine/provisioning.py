@@ -211,6 +211,65 @@ def create_company(
     return paths
 
 
+def reregister_company(company_id: str) -> CompanyPaths:
+    """Re-add a registry entry for a company folder that already exists and
+    validates, without touching its configs, data, or outputs.
+
+    For the case where the folder and the registry have drifted apart: the
+    tenant was created correctly at some point, but its `metadata.yaml` entry
+    was lost independently (a reset or a revert that did not also touch
+    `user/`). `create_company` refuses this folder with `CompanyExists`
+    rather than silently reusing it -- callers that see that 409 alongside a
+    registry lookup that says "not registered" should call this instead of
+    `force=True`, which would `shutil.rmtree` real data.
+
+    Raises `CompanyExists` if it is already registered, and `ProvisioningError`
+    if the folder is missing or does not validate -- this never invents a
+    company, only closes a registry gap for one already fully formed on disk.
+    """
+    root = user_root() / company_id
+    company_file = root / COMPANY_FILENAME
+    if not company_file.exists():
+        raise ProvisioningError(
+            f"No company folder at {root} to re-register -- use create_company instead."
+        )
+    spec = load_company(company_file)
+
+    with registry_lock():
+        registry = _read_registry_or_empty()
+        if any(c.company_id == company_id for c in registry.companies):
+            raise CompanyExists(f"Company {company_id!r} is already registered.")
+
+        entry = CompanyEntry(
+            company_id=spec.company_id,
+            display_name=spec.display_name,
+            domains=spec.domains,
+            created_at=spec.created_at,
+            external_ids=ExternalIds(supabase_user_ids=[]),
+        )
+        updated = CompanyRegistry(
+            schema_version=registry.schema_version,
+            companies=[*registry.companies, entry],
+        )
+        write_yaml(updated, registry_path())
+
+    forget_company(company_id)
+    try:
+        paths = open_company(company_id)
+        problems = paths.validate()
+    except BaseException:
+        _unregister(company_id)
+        raise
+
+    if problems:
+        _unregister(company_id)
+        raise ProvisioningError(
+            f"Company {company_id!r}'s folder does not validate; not registered:\n  - "
+            + "\n  - ".join(problems)
+        )
+    return paths
+
+
 def _read_registry_or_empty() -> CompanyRegistry:
     if not registry_path().exists():
         return CompanyRegistry(companies=[])
