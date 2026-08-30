@@ -13,6 +13,17 @@ from typing import Any
 from kpi_agent.models import GroundedContext, Narrative, VerificationResult
 
 
+def asked(question: str) -> str:
+    """What to print where the user's question goes, when there was not one.
+
+    Not asking is a supported way to use this -- it means "sweep everything" --
+    so the line has to say that rather than trail off after the em dash. Shared
+    by both renderers and by the terse reports in `graph.py`, because a blank
+    here reads as a bug in every one of them.
+    """
+    return question.strip() or "(nothing asked — a broad sweep of every KPI)"
+
+
 def render_markdown(
     narrative: Narrative,
     context: GroundedContext,
@@ -23,7 +34,7 @@ def render_markdown(
     a = lines.append
 
     a(f"# {narrative.headline}\n")
-    a(f"**Question** — {context.question}  ")
+    a(f"**Question** — {asked(context.question)}  ")
     a(f"**Understood as** — {context.question_restated}  ")
     a(f"**Audience** — {context.persona}  ")
     a(f"**Grain** — {context.time_grain}"
@@ -45,6 +56,15 @@ def render_markdown(
                 f"{act.expected_impact} | {_confidence(act.confidence)} | {act.monitoring} | "
                 f"{', '.join(act.evidence_ids) or '—'} |"
             )
+        a("")
+
+    if narrative.general_recommendations:
+        a("## Other suggestions\n")
+        a("General practice for KPIs that moved this way, from the model's own "
+          "knowledge rather than this data. Nothing below was measured, nothing "
+          "cites the evidence table, and none of it is a cause.\n")
+        for rec in narrative.general_recommendations:
+            a(f"- **{rec.related_kpi}** — {rec.action} _{rec.rationale}_")
         a("")
 
     if narrative.abstained_from:
@@ -257,7 +277,7 @@ def render_console(
     plan = Table.grid(padding=(0, 2))
     plan.add_column(style="dim", justify="right")
     plan.add_column()
-    plan.add_row("question", context.question)
+    plan.add_row("question", asked(context.question))
     plan.add_row("understood as", Text(context.question_restated, style="italic"))
     if intent is not None and getattr(intent, "reasoning", None):
         plan.add_row("planner's reasoning", Text(intent.reasoning, style="italic dim"))
@@ -401,6 +421,23 @@ def render_console(
                          _confidence(act.confidence),
                          Text(", ".join(act.evidence_ids) or "—", style="dim"))
         body.add_row(acts)
+
+    if narrative.general_recommendations:
+        body.add_row("")
+        body.add_row(Text("OTHER SUGGESTIONS", style="bold dim"))
+        body.add_row(Text(
+            "general practice, not measured — no evidence backs these",
+            style="dim",
+        ))
+        suggestions = Table.grid(padding=(0, 1))
+        suggestions.add_column(width=1, no_wrap=True)
+        suggestions.add_column(overflow="fold")
+        for rec in narrative.general_recommendations:
+            line = Text(f"{rec.related_kpi} — ", style="bold")
+            line += Text(rec.action)
+            line += Text(f" {rec.rationale}", style="italic dim")
+            suggestions.add_row("•", line)
+        body.add_row(suggestions)
 
     if narrative.abstained_from:
         body.add_row("")

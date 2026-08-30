@@ -32,6 +32,7 @@ from kpi_engine.contracts.payloads import (
 from kpi_engine.scenarios.scm_generator import generate_scm_panel
 
 from kpi_agent import build_graph, stream_agent
+from kpi_agent import intent as intent_mod
 from kpi_agent.llm import Usage
 from kpi_agent.intent import validate_intent
 from kpi_agent.linking import link_events
@@ -44,6 +45,7 @@ from kpi_agent.models import (
     Claim,
     ExogenousFactor,
     Fact,
+    GeneralRecommendation,
     GroundedContext,
     Narrative,
     VerificationResult,
@@ -222,6 +224,55 @@ def test_verifier_rejects_an_action_assigned_to_the_wrong_owner(context, graph):
     assert any(v.code == "unknown_owner" for v in result.violations)
 
 
+def test_a_general_recommendation_may_speak_from_knowledge_but_not_from_numbers(
+    context, graph
+):
+    """The one place the model is allowed its own knowledge, and its one limit.
+
+    There is no external knowledge base per tenant, so this section exists to say
+    more than attribution measured. What it may not do is borrow the authority of
+    a measurement: a figure here would read as computed, and nothing computed it.
+    """
+    ok = _narrative(general_recommendations=[GeneralRecommendation(
+        related_kpi="CAC",
+        action="Review bid caps on the highest-spend campaigns before the next flight.",
+        rationale="Acquisition cost usually reacts to bid ceilings faster than to "
+                  "creative changes.",
+    )])
+    assert verify(ok, context, graph).passed
+
+    bad = _narrative(general_recommendations=[GeneralRecommendation(
+        related_kpi="CAC",
+        action="Cut paid media spend by 15% next quarter.",
+        rationale="That is the usual correction.",
+    )])
+    result = verify(bad, context, graph)
+    assert any(v.code == "ungrounded_number" for v in result.violations)
+
+
+def test_a_general_recommendation_must_be_about_a_kpi_this_run_looked_at(context, graph):
+    bad = _narrative(general_recommendations=[GeneralRecommendation(
+        related_kpi="Gross Merchandise Value",
+        action="Watch basket composition.",
+        rationale="It moves with promotional mix.",
+    )])
+    result = verify(bad, context, graph)
+    assert any(v.code == "unknown_kpi" for v in result.violations)
+
+
+def test_a_general_recommendation_cites_nothing_and_needs_no_citation(context, graph):
+    """It carries no `evidence_ids` field at all, so there is nothing to forget.
+
+    That is the structural half of the guarantee: an `Action` without citations is
+    a lapse, while this is declared uncited up front and rendered under a heading
+    that says so.
+    """
+    assert not hasattr(GeneralRecommendation, "evidence_ids")
+    rec = GeneralRecommendation(related_kpi="CAC", action="Review bid caps.",
+                                rationale="Standard practice.")
+    assert "evidence_ids" not in rec.model_dump()
+
+
 def test_verifier_rejects_an_invented_confidence(context, graph):
     """A confidence number must be one the engine computed, not one that reads well."""
     bad = _narrative(actions=[Action(
@@ -289,6 +340,65 @@ def _intent(**kw) -> AnalysisIntent:
                 persona="analyst", question_restated="q")
     base.update(kw)
     return AnalysisIntent(**base)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "",
+        "   ",
+        "how are we doing?",
+        "We ran an unlogged billboard campaign in the West last week.",
+    ],
+    ids=["empty", "blank", "vague", "context-only"],
+)
+def test_three_ways_of_not_naming_a_kpi_are_one_instruction(question, source_triples):
+    """Empty, vague, and context-only differ only in what the user typed.
+
+    None of them narrows the analysis, so all of them must reach survey mode by
+    the same route -- an empty `kpis` list -- rather than through three branches
+    that could drift apart. The mode is derived from the plan, so what is pinned
+    here is that nothing about the question string diverts it.
+    """
+    resolved, _ = validate_intent(_intent(kpis=[]), source_triples)
+    assert resolved is not None
+    assert resolved.kpis == []
+
+    plan = intent_mod.default_intent(question, "exec", source_triples)
+    assert plan.kpis == []
+    # `graph._validate`'s derivation, which is what actually sets the mode.
+    assert not plan.kpis
+
+
+def test_an_absent_question_still_says_what_it_decided_to_run(source_triples):
+    """A blank restatement leaves `**Understood as** —` trailing into nothing.
+
+    Not asking is a supported way to use this, so the run has to give its own
+    account of what it did instead of echoing the emptiness back.
+    """
+    silent = intent_mod.default_intent("", "exec", source_triples)
+    assert silent.question_restated.strip()
+    assert "sweep" in silent.question_restated.lower()
+
+    asked = intent_mod.default_intent("why did CAC rise?", "exec", source_triples)
+    assert asked.question_restated == "why did CAC rise?"
+
+
+def test_context_survives_a_question_that_narrows_nothing(source_triples):
+    """A context-only message fills `exogenous` AND sweeps every KPI.
+
+    The two are independent: transcribing what the user said is not a substitute
+    for looking at the data, and sweeping the data is not a reason to drop what
+    they said. A run that did one instead of the other would answer half.
+    """
+    resolved, _ = validate_intent(
+        _intent(kpis=[], exogenous=[_factor(entity_key="Region", entity_value="West")]),
+        source_triples,
+    )
+    assert resolved is not None
+    assert resolved.kpis == []
+    assert len(resolved.exogenous) == 1
+    assert resolved.exogenous[0].label == "heatwave"
 
 
 def test_an_unknown_kpi_is_dropped_when_a_real_one_remains(source_triples):
@@ -528,6 +638,24 @@ def test_the_no_model_path_runs_when_no_grain_was_forced():
     )
     assert state["intent"].time_grain == "week"
     assert state["report_markdown"]
+
+
+@pytest.mark.slow
+def test_a_run_with_no_question_at_all_produces_a_report():
+    """The whole graph, end to end, with nothing asked.
+
+    Every layer above this now permits an absent question -- the CLI positional is
+    optional and `AskRequest.question` defaults to empty -- so what has to hold is
+    that the graph reaches a written report rather than a blank page or a
+    clarification. It sweeps, because nothing narrowed it.
+    """
+    state = _invoke(None, question="", run_id="pytest-no-question")
+    assert state["intent"].kpis == []
+    assert state["survey"]
+    assert state["report_markdown"]
+    # The report must account for itself rather than trailing off after the dash.
+    assert "**Question** — \n" not in state["report_markdown"]
+    assert state["context"].question_restated.strip()
 
 
 @pytest.mark.slow
@@ -1122,6 +1250,45 @@ def test_the_console_view_does_not_replace_the_markdown_artefact(context):
     after = render_markdown(narrative, context, verification, telemetry)
     assert before == after
     assert before.startswith("# CAC rose in the West.")
+
+
+def test_a_general_recommendation_reaches_both_renderers_labelled_as_ungrounded(context):
+    """Both views must carry it, and both must say it was not measured.
+
+    A suggestion printed beside the attributed actions with no disclaimer is the
+    failure this section is shaped to avoid: it would read as a finding, and the
+    reader has no way to tell which half of the page the engine stands behind.
+    """
+    from kpi_agent.render import render_console, render_markdown
+
+    narrative = _narrative(general_recommendations=[GeneralRecommendation(
+        related_kpi="CAC",
+        action="Review bid caps before the next flight.",
+        rationale="Acquisition cost reacts to bid ceilings quickly.",
+    )])
+    verification = VerificationResult(passed=True, violations=[],
+                                      numbers_checked=2, claims_checked=2)
+    telemetry = {"model": "stub", "llm_calls": 2, "deterministic_stages": 1,
+                 "deterministic_ms": 1.0, "llm_tokens_in": 1, "llm_tokens_out": 1,
+                 "llm_cost_usd": None, "used_fallback": False, "fallback_reason": ""}
+
+    markdown = render_markdown(narrative, context, verification, telemetry)
+    assert "## Other suggestions" in markdown
+    assert "Review bid caps before the next flight." in markdown
+    assert "was measured" in markdown or "not measured" in markdown
+
+    console, buffer = _capture_console()
+    render_console(console, narrative=narrative, context=context,
+                   verification=verification, telemetry=telemetry)
+    printed = buffer.getvalue()
+    assert "OTHER SUGGESTIONS" in printed
+    assert "not measured" in printed
+
+    # And the section is absent entirely when the model offered nothing, rather
+    # than appearing as an empty heading.
+    assert "## Other suggestions" not in render_markdown(
+        _narrative(), context, verification, telemetry
+    )
 
 
 # --------------------------------------------------------------------------- #

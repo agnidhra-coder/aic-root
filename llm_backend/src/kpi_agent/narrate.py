@@ -44,6 +44,16 @@ in your own words and put only the figure in it.
 3. Only name drivers, levers and owners that appear in the facts or the `levers` \
 list. An action must name a lever that is actually controllable, with the owner \
 the data assigns to it.
+3b. `general_recommendations` is the one place you may write from your own \
+knowledge of this industry rather than from the table. Give exactly 3 whenever the \
+facts name three or more KPIs, and never fewer than 2 -- practices worth \
+considering for a KPI that moved this way, given no external knowledge base about \
+this company exists. Spread them across different KPIs and different kinds of \
+response rather than restating one idea three ways. They are explicitly NOT \
+measured, so put NO number in `action` or `rationale`, never say the data supports \
+them, and never repeat an attributed cause or a recommended action as one. Set \
+`related_kpi` to a KPI name that appears in the facts. These carry no evidence ids \
+because nothing here cites the table.
 4. If an event abstained, it gets no cause. Say what was missing and what would \
 resolve it, in `abstained_from`. Do not explain around an abstention.
 5. Distinguish exact from estimated. A contribution marked exact follows from the \
@@ -141,8 +151,8 @@ def narrate(
 
 
 def _sections_for(context: GroundedContext) -> list[str]:
-    return ["what_happened", "why", "needs_attention", "actions", "uncertainty",
-            "abstained_from"]
+    return ["what_happened", "why", "needs_attention", "actions",
+            "general_recommendations", "uncertainty", "abstained_from"]
 
 
 # --------------------------------------------------------------------------- #

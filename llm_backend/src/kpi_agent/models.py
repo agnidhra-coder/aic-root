@@ -278,6 +278,27 @@ class Action(Strict):
     evidence_ids: list[str] = Field(default_factory=list)
 
 
+class GeneralRecommendation(Strict):
+    """A suggestion drawn from general business/industry knowledge, not this
+    tenant's measured evidence -- there is no external knowledge base to ground
+    it against, so it is kept structurally separate from `Action` rather than
+    dressed up as one. Never cited as evidence, never carries a number, never a
+    cause.
+    """
+
+    related_kpi: str = Field(
+        description="A KPI named in the facts that this recommendation is about."
+    )
+    action: str = Field(
+        description="What to consider doing. Concrete framing, but explicitly a "
+        "general practice, not a measured finding."
+    )
+    rationale: str = Field(
+        description="Why this is generally good practice for this kind of KPI "
+        "movement -- domain reasoning, not data."
+    )
+
+
 class Narrative(Strict):
     headline: str = Field(description="One line a busy reader could act on.")
     what_happened: list[Claim] = Field(default_factory=list)
@@ -291,6 +312,13 @@ class Narrative(Strict):
         description="What a human should look at now, most urgent first.",
     )
     actions: list[Action] = Field(default_factory=list)
+    general_recommendations: list[GeneralRecommendation] = Field(
+        default_factory=list,
+        description="2-3 extra suggestions from general business knowledge, "
+        "offered because this tenant has no causal lever measured for everything "
+        "that moved. Never grounded in the fact table -- no numbers, no "
+        "evidence_ids.",
+    )
     uncertainty: str = Field(
         default="",
         description="What this analysis cannot tell you, and why. Be specific about "
@@ -320,6 +348,7 @@ class Violation(Strict):
         "unlicensed_context_cause",
         "direction_contradicts_evidence",
         "confidence_not_grounded",
+        "unknown_kpi",
     ]
     where: str
     detail: str

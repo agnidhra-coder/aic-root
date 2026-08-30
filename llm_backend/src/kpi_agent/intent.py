@@ -61,13 +61,18 @@ sales source. Cross-source explanation is the point of having both.
 period ("last quarter", "this month"), resolve it against the catalog's date range, \
 which is the data's own clock and may differ from today's date.
 - Set clarification_needed ONLY when the request genuinely cannot be resolved against \
-the catalog -- an unknown metric, an ambiguous entity, a period outside coverage. A \
-vague-but-answerable question ("what needs attention?") is not a case for \
-clarification: run everything at a sensible grain. Leave `kpis` EMPTY for such a \
-question rather than listing every KPI in the catalog -- empty is a positive \
-instruction meaning "all of them", and it is what puts the run in survey mode, where \
-the descriptive findings are reported alongside whatever the detector flags.
-- The question may assert something the data does not contain: weather, a strike, a \
+the catalog -- an unknown metric, an ambiguous entity, a period outside coverage. Not \
+naming a KPI is never a reason to ask for clarification.
+- A request may give you nothing to narrow with, in three ways that are the same \
+instruction written differently: it is EMPTY or blank; it is vague but answerable \
+("what needs attention?", "how are we doing?"); or it states context and asks nothing \
+("we ran a billboard campaign in the West last week"). Treat all three identically for \
+`kpis` -- leave it EMPTY rather than listing every KPI in the catalog. Empty is a \
+positive instruction meaning "all of them", and it is what puts the run in survey mode, \
+where the descriptive findings are reported alongside whatever the detector flags. \
+Write `question_restated` as the review you decided to run; do not echo an empty string \
+back, and do not restate a bare assertion as though it were a question.
+- The request may assert something the data does not contain: weather, a strike, a \
 competitor's promotion, a public holiday, a campaign nobody logged. Record each as one \
 `exogenous` entry. Transcribe what was said and invent nothing around it -- give dates \
 only if dates were given, and name an entity only when it is a catalog entity column \
@@ -75,6 +80,10 @@ and one of its values. A vague mention ("the weather was bad") is still worth re
 with null dates. This is a hypothesis for the reader to weigh, not a finding: it must \
 not change which KPIs, which grain, which slice or which period you choose, and the \
 engine will never treat it as a cause.
+- Those last two rules are independent, and the third case above is where that shows: \
+a request that only states context produces an EMPTY `kpis` list AND a populated \
+`exogenous` list in the same answer. Recording what the user said is never a substitute \
+for sweeping the KPIs, and sweeping them is never a reason to drop what they said.
 """
 
 
@@ -141,6 +150,11 @@ def default_intent(
     Deliberately broad -- every KPI in every source, one sensible slice -- because
     without a model to narrow the question, narrowing it ourselves would be a guess
     dressed as a plan. A wide sweep at a sane grain is honest about knowing less.
+
+    This is also where an absent question lands, and the two are the same plan for
+    the same reason: nothing here can narrow the analysis, so the analysis is not
+    narrowed. Only the restatement differs -- echoing an empty string back leaves
+    the reader with a blank line where the run's own account of itself should be.
     """
     return AnalysisIntent(
         kpis=[],
@@ -148,7 +162,10 @@ def default_intent(
         time_grain=time_grain,
         sources=[spec.source_id for spec, _, _ in sources],
         persona=persona,  # type: ignore[arg-type]
-        question_restated=question,
+        question_restated=question.strip() or (
+            "No question was asked, so this is a broad sweep of every KPI for "
+            "whatever needs attention."
+        ),
         reasoning=(
             "No model available; running a broad sweep at the default grain. Any "
             "context stated in the question was not parsed, because parsing it is "
