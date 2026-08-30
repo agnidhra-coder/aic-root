@@ -152,6 +152,22 @@ class Fact(Strict):
     owner: str | None = None
     lineage: dict[str, Any] = Field(default_factory=dict)
     note: str | None = None
+    # A `kind="contribution"` fact's share of its KPI's total move, as a
+    # fraction (0.25 means 25%) -- `None` when the KPI's total delta was zero
+    # and a share cannot be defined. This is `Contribution.share` verbatim;
+    # until now it only ever reached a client baked into `display`'s
+    # "(+12.3% of the move)" clause as text, which forced every consumer to
+    # regex it back out of a sentence instead of reading a number.
+    share: float | None = None
+    # A `kind="movement"` fact's `ObservedDeviation.expected`/`.actual`, in the
+    # KPI's own unmarked unit. Until now these only ever reached a client baked
+    # into `display`'s "(30.93 expected, 41.51 actual)" clause via `_fmt(...,
+    # unit=None)`, which is why that clause is never currency-marked even for a
+    # currency KPI: the formatter genuinely was never told the unit. A client
+    # that knows the KPI's unit (from the confirmed contract) can format these
+    # correctly; one that does not can keep reading `display` exactly as before.
+    expected: float | None = None
+    actual: float | None = None
 
 
 class CrossSourceLink(Strict):

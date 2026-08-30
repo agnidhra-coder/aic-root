@@ -45,6 +45,20 @@ class FactBuilder:
         return fact
 
 
+def _fmt_number(value: float, *, sign: bool = False) -> str:
+    """Comma-grouped, fixed-point rendering of `value` -- never scientific notation.
+
+    `f"{value:,.4g}"` (the natural choice for "a few significant figures") switches
+    to `3.885e+06` once the exponent leaves `.4g`'s fixed-point range, which reads
+    as a typo to a business audience. Magnitude decides the decimal count instead:
+    whole units once the number is large enough that a fraction is not meaningful.
+    """
+    sign_spec = "+" if sign else ""
+    if abs(value) >= 1000:
+        return f"{value:{sign_spec},.0f}"
+    return f"{value:{sign_spec},.4g}"
+
+
 def _fmt(value: float | None, unit: str | None) -> str:
     if value is None:
         return "n/a"
@@ -60,7 +74,7 @@ def _fmt(value: float | None, unit: str | None) -> str:
         return f"{value:.3f}"
     if unit == "count":
         return f"{int(round(value)):,}"
-    return f"{value:,.4g}".rstrip()
+    return _fmt_number(value)
 
 
 def build_context(
@@ -314,6 +328,8 @@ def _event_entry(
                     f"{', '.join(event.anomaly_types)}; "
                     f"detected by {', '.join(event.detectors)}"
                 ),
+                expected=dev.expected,
+                actual=dev.actual,
             )
             ids.append(fact.id)
 
@@ -327,7 +343,7 @@ def _event_entry(
                     label=f"{contribution.driver} contribution to {attribution.kpi}",
                     value=contribution.contribution,
                     display=(
-                        f"{contribution.driver}: {contribution.contribution:+,.4g}"
+                        f"{contribution.driver}: {_fmt_number(contribution.contribution, sign=True)}"
                         # A share is nan when the total delta is zero -- the
                         # contribution is real but its proportion is undefined, and
                         # printing "nan%" in a business report is worse than
@@ -338,7 +354,8 @@ def _event_entry(
                             and contribution.share == contribution.share else ""
                         )
                         + (
-                            f", 95% CI {contribution.ci_low:+,.4g} to {contribution.ci_high:+,.4g}"
+                            f", 95% CI {_fmt_number(contribution.ci_low, sign=True)} to "
+                            f"{_fmt_number(contribution.ci_high, sign=True)}"
                             if contribution.ci_low is not None
                             and contribution.ci_high is not None else ""
                         )
@@ -357,6 +374,13 @@ def _event_entry(
                         "exact algebra -- follows from the KPI's definition"
                         if contribution.exact else
                         f"estimated by {contribution.method}"
+                    ),
+                    # Same NaN check `display` above uses, so the two agree on
+                    # exactly when a share exists: `x == x` is false only for NaN.
+                    share=(
+                        contribution.share
+                        if contribution.share is not None
+                        and contribution.share == contribution.share else None
                     ),
                 )
                 ids.append(fact.id)
@@ -601,7 +625,7 @@ def _trend_fact(profile: SeriesProfile, shape: TrendShape) -> dict[str, Any]:
             "method": "pelt_segment",
             "lineage": profile.lineage.model_dump(mode="json"),
             "note": (
-                f"Phase mean {segment.mean:,.4g} over {segment.n_periods} periods, "
+                f"Phase mean {_fmt_number(segment.mean)} over {segment.n_periods} periods, "
                 f"{segment.direction}. A structural break in the level, not an "
                 f"anomaly: no detector flagged it."
             ),
