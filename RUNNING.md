@@ -4,9 +4,9 @@ Three services, three deploys:
 
 | Service | Platform | URL |
 |---|---|---|
-| `frontend` (Next.js) | Vercel | **[FILL IN]** |
-| `server` (NestJS) | Render | **[FILL IN]** |
-| `llm_backend` (FastAPI) | Render | **[FILL IN]** |
+| `frontend` (Next.js) | Vercel | https://aic-root-vercel.vercel.app |
+| `server` (NestJS) | Render | https://aic-root-nestjs-backend.onrender.com |
+| `llm_backend` (FastAPI) | Render | https://aic-llm-backend.onrender.com |
 
 All three are on genuinely free tiers — no trial credit, no card required.
 The trade-off: Render's free web services sleep after ~15 minutes idle, and
