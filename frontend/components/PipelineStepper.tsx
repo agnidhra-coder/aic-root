@@ -20,11 +20,6 @@ export function PipelineStepper({ active, size = "md" }: { active: string; size?
         const done = i < activeIndex;
         const isActive = i === activeIndex;
         return (
-          // Fragment, not a wrapper div: the circle and the connector that
-          // follows it are separate flex items now, not one column with the
-          // connector squeezed into its leftover space -- that squeeze is what
-          // let a wider label (e.g. "Decompose") steal width from its own
-          // connector and leave every gap a different size.
           <Fragment key={step.key}>
             <div
               className={clsx(

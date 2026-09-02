@@ -3,13 +3,6 @@
 import { useState } from "react";
 import { clsx } from "clsx";
 
-/**
- * "Certain" vs. "Estimated" for one number — whether it follows exactly from
- * a KPI's own formula, or comes from a statistical method instead. Same
- * hover/tap tooltip pattern as `TierBadge`, kept separate because it explains
- * a different axis (how sure is this specific number) from tier (how sure is
- * the overall explanation).
- */
 export function MethodBadge({
   exact,
   method,

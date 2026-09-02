@@ -45,7 +45,6 @@ function DashboardContent() {
       const list = await listUploadsRequest(token);
       setUploads(list);
     } catch {
-      // Ignore — the dashboard will just show whatever it last had.
     } finally {
       setIsLoadingUploads(false);
     }
@@ -58,7 +57,6 @@ function DashboardContent() {
     void run();
   }, [loadUploads]);
 
-  // Poll while anything is still pending/analyzing, so sidebar status updates live.
   useEffect(() => {
     const hasInFlight = uploads.some((u) =>
       ["pending", "planning", "confirming", "analyzing"].includes(u.status)
@@ -91,8 +89,6 @@ function DashboardContent() {
     async (upload: UploadRecord) => {
       if (!token) return;
 
-      // A file still waiting on the user has no analysis to summarise; send
-      // them back to the step they left off at instead.
       if (upload.status === "awaiting_plan" || upload.status === "awaiting_question") {
         router.push(`/uploads/${upload.id}/setup`);
         return;
@@ -118,8 +114,6 @@ function DashboardContent() {
     async (upload: UploadRecord) => {
       if (!token) return;
       setDeleteError(null);
-      // Optimistic: the row disappears immediately rather than waiting on the
-      // round trip, since the confirm step already asked once.
       setUploads((prev) => prev.filter((u) => u.id !== upload.id));
       if (selectedId === upload.id) {
         setSelectedId(null);
@@ -132,8 +126,6 @@ function DashboardContent() {
         setDeleteError(
           err instanceof ApiError ? err.message : `Failed to delete "${upload.filename}".`
         );
-        // The delete did not actually happen — put it back rather than leave
-        // the sidebar lying about what still exists.
         void loadUploads();
       }
     },
@@ -277,8 +269,6 @@ function DashboardContent() {
           onClose={() => setIsModalOpen(false)}
           onUploaded={(upload) => {
             setIsModalOpen(false);
-            // The upload is not analysed yet — the user picks their KPIs and
-            // asks a question first.
             router.push(`/uploads/${upload.id}/setup`);
           }}
         />

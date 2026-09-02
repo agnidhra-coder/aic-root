@@ -20,11 +20,6 @@ import {
 
 const POLL_INTERVAL_MS = 2000;
 
-/**
- * The two steps between an upload and its analysis: choose the KPIs the engine
- * proposed, then ask a question. Both are gated on the upload's status, so a
- * refresh or a return visit lands on whichever step is actually outstanding.
- */
 function SetupContent() {
   const { uploadId } = useParams<{ uploadId: string }>();
   const router = useRouter();
@@ -41,8 +36,6 @@ function SetupContent() {
     return current;
   }, [token, uploadId]);
 
-  // Poll only while the engine is working. `planning` is minutes of profiling
-  // on a wide file, and `confirming` writes the tenant's configs.
   useEffect(() => {
     if (!token) return;
     let cancelled = false;

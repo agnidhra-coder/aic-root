@@ -22,13 +22,6 @@ import {
 
 const POLL_INTERVAL_MS = 2000;
 
-/**
- * Mirrors `BASE_QUESTION` in `server/src/analysis/analysis.service.ts` — the
- * sentence sent verbatim when the question box was left blank, and the
- * prefix `buildQuestion` prepends to whatever the user typed otherwise.
- * Stripping it back off `analysis.question` is how this page recovers just
- * the user's own addition, since the two are stored as one combined string.
- */
 const BASE_QUESTION = "Analyze the KPIs I selected and tell me what needs attention.";
 
 function userPrompt(question: string | undefined): string | null {
@@ -39,7 +32,6 @@ function userPrompt(question: string | undefined): string | null {
   return extra.length > 0 ? extra : null;
 }
 
-/** The statuses that mean the setup steps are still outstanding. */
 const AWAITING_SETUP = ["pending", "planning", "awaiting_plan", "confirming", "awaiting_question"];
 
 function AnalysisContent() {
@@ -47,9 +39,6 @@ function AnalysisContent() {
   const router = useRouter();
   const { token } = useAuth();
   const [upload, setUpload] = useState<UploadRecord | null>(null);
-  // Seeded synchronously from the cache so a finished analysis the user has
-  // already fetched once (e.g. returning from a case detail page) renders on
-  // the very first paint instead of flashing "Loading analysis…" again.
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(() =>
     getCachedAnalysis(uploadId) ?? null
   );
@@ -67,8 +56,6 @@ function AnalysisContent() {
         setUpload(current);
 
         if (current.status === "ready") {
-          // Already have this run's result cached — nothing left to fetch or
-          // to keep polling for.
           if (getCachedAnalysis(uploadId)) return;
           const result = await getAnalysisRequest(token, uploadId);
           if (cancelled) return;
@@ -80,7 +67,6 @@ function AnalysisContent() {
               "Analysis failed for this file. Please try uploading it again."
           );
         } else if (AWAITING_SETUP.includes(current.status)) {
-          // The KPI choice or the question is still outstanding.
           router.replace(`/uploads/${uploadId}/setup`);
         }
       } catch (err) {
@@ -91,8 +77,6 @@ function AnalysisContent() {
     }
 
     void poll();
-    // A cached result is already the finished report — no need to keep
-    // polling an upload that can no longer change.
     if (getCachedAnalysis(uploadId)) return;
     const interval = setInterval(() => {
       void poll();
@@ -104,9 +88,6 @@ function AnalysisContent() {
     };
   }, [token, uploadId, router]);
 
-  // A cached analysis means this run already finished — never show the
-  // processing/loading state for it again, even before the upload metadata
-  // fetch above has resolved.
   const isProcessing =
     !analysis &&
     upload &&
@@ -199,12 +180,6 @@ function AnalysisContent() {
   );
 }
 
-/**
- * A narrative sentence has its detected window appended as plain text --
- * "... (2024-06-24 to 2024-07-08)" -- so it reads correctly even before this
- * renders. Split it out here to make the date visually distinct instead of
- * blending into the sentence around it.
- */
 const WINDOW_SUFFIX = /\s*\((\d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2})\)\s*$/;
 
 function NarrativeLine({ text }: { text: string }) {
@@ -221,7 +196,6 @@ function NarrativeLine({ text }: { text: string }) {
   );
 }
 
-/** The run's one narrative, in full. One run produces one, not one per persona. */
 function AnalysisNarrative({ analysis }: { analysis: AnalysisResult }) {
   const narrative = analysis.narrative;
   if (!narrative) return null;
@@ -291,10 +265,6 @@ function AnalysisNarrative({ analysis }: { analysis: AnalysisResult }) {
   );
 }
 
-/**
- * A run with no `KpiCase` is a real answer, not an empty one: nothing was
- * anomalous, which is different from nothing happening. Say which.
- */
 function NoCases({ analysis }: { analysis: AnalysisResult }) {
   const trends = analysis.trends ?? [];
 
@@ -339,11 +309,6 @@ function NoCases({ analysis }: { analysis: AnalysisResult }) {
   );
 }
 
-/**
- * One sentence describing where a stated factor landed, built entirely from
- * structured fields — never `note`/`eventId`, which repeat the same overlap
- * and expose an internal id ("EV-West-20240624-007") a reader cannot use.
- */
 function alignmentSummary(alignment: ContextAlignmentItem): string {
   if (!alignment.aligned) {
     return "Nothing in the detected windows lines up with this.";
@@ -377,7 +342,6 @@ function alignmentSummary(alignment: ContextAlignmentItem): string {
   return `${summary} This is a coincidence in time, not a cause — the engine never treats it as one.`;
 }
 
-/** Context alignments, abstentions and caveats — the honest small print. */
 function AnalysisFootnotes({ analysis }: { analysis: AnalysisResult }) {
   const alignments = analysis.contextAlignments ?? [];
   const abstentions = analysis.abstentions ?? [];

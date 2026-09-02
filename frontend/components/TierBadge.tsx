@@ -37,9 +37,6 @@ export function TierBadge({ tier, className }: { tier: ConfidenceTier; className
 
   function show() {
     setMounted(true);
-    // Mount closed, then flip to open only after the browser has painted
-    // that closed state -- a single rAF still lands in the same paint as
-    // the mount often enough that the enter transition never runs.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setOpen(true));
     });

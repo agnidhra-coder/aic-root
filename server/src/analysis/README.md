@@ -69,23 +69,14 @@ interface KpiCase {
   };
 
   decompose: DecomposeStep[];     // the dimension breakdown that narrowed the cause
-  // DecomposeStep = { dimension: string; narrowedTo: string; note: string }
 
   evidence: EvidenceItem[];       // structured/unstructured/exogenous evidence
-  // EvidenceItem = {
-  //   kind: "structured" | "unstructured" | "exogenous";
-  //   label: string; detail: string; contribution: number; // 0-100
-  //   citation: string; aligned: boolean;
-  // }
 
   contributionTotal: number;      // 0-100, sum of evidence contribution -> drives tier
 
   narratives: Record<string, string>;
-  // must include at least these two keys — frontend renders them as tabs:
-  //   { operational: "...", strategic: "..." }
 
   action: ActionPlan;
-  // { driver, lever, action, impact, owner, confidence, monitor } — all strings
 
   checkBackDate: string;  // "YYYY-MM-DD"
 }

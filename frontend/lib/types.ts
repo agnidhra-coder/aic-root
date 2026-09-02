@@ -31,14 +31,9 @@ export interface EvidenceItem {
   kind: EvidenceSourceKind;
   label: string;
   detail: string;
-  // `null` means no share of the move is defined for this item (e.g. an
-  // abstention, or a zero-delta KPI) -- distinct from a real contribution of 0%.
   contribution: number | null;
   citation: string;
-  // "This contribution is exact" vs. a statistical estimate.
   aligned: boolean;
-  // The statistical method's name when `aligned` is false; absent/null when
-  // exact, or when the source (e.g. demo data) never set one.
   method?: string | null;
 }
 

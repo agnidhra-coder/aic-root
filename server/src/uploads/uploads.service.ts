@@ -17,14 +17,6 @@ import { StoredKpiPlan, UploadRecord, UploadStatus } from './upload.entity';
 const TABLE = 'uploads';
 const BUCKET = 'kpi-uploads';
 
-/**
- * The uploaded CSV, kept in memory between the plan and the confirm step.
- *
- * Python stages the file itself at `/kpi-plan`, so the confirm call does not
- * need the bytes again — but the header and row count are wanted for the
- * eventual `AnalysisResult`, and re-downloading from Supabase storage to get
- * them would be a round trip for two numbers.
- */
 interface CsvSummary {
   columns: string[];
   rowCount: number;
@@ -87,10 +79,6 @@ export class UploadsService {
       .from(TABLE)
       .insert({
         user_id: params.userId,
-        // Drives the dashboard's tab filter AND selects which Python company
-        // (and starting template) this upload's KPI plan runs against — see
-        // `UsersService.companySlugFor`. The confirmed contract still ends up
-        // shaped by the file's real columns regardless of the template.
         domain: params.domain,
         filename: params.file.originalname,
         storage_path: storagePath,
@@ -114,8 +102,6 @@ export class UploadsService {
 
     const upload = data as UploadRecord;
 
-    // Proposing the plan is minutes of profiling on a wide file, so it runs in
-    // the background exactly like the analysis does; the frontend polls status.
     this.planInBackground({
       uploadId: upload.id,
       userId: params.userId,
@@ -148,12 +134,6 @@ export class UploadsService {
     });
   }
 
-  /**
-   * Ensure the tenant exists, then propose which KPIs this file can support.
-   *
-   * The file is *staged* by this call, not accepted: the company stays
-   * `awaiting_data` and `/ask` keeps refusing it until the plan is confirmed.
-   */
   private async planKpis(params: {
     uploadId: string;
     userId: string;
@@ -184,11 +164,6 @@ export class UploadsService {
       );
     }
 
-    // Neither comes from the plan itself -- `staged` is about the CSV before
-    // profiling even starts, `bindings` is what the model could not place --
-    // but both are worth a user seeing before they confirm, so they ride
-    // along on the stored plan rather than being dropped with the rest of
-    // the stream once `drafted` fires.
     const storedPlan: StoredKpiPlan = {
       ...plan,
       stagingWarnings: response.staged?.warnings ?? [],
@@ -208,12 +183,6 @@ export class UploadsService {
     if (error) throw new Error(error.message);
   }
 
-  /**
-   * Step 4: commit the user's accept/reject decisions.
-   *
-   * A KPI not named in `decisions` keeps its proposal, so both verdicts are sent
-   * explicitly — an omitted rejection would silently be accepted.
-   */
   async confirmPlan(params: {
     uploadId: string;
     userId: string;
@@ -263,12 +232,6 @@ export class UploadsService {
     return this.requireUpload(params.uploadId, params.userId);
   }
 
-  /**
-   * Step 6/7: build the final question and open the real `/ask` stream.
-   *
-   * The plan must be confirmed first — `/ask` is a 409 against a company whose
-   * data has not been accepted — which is what the status gate below enforces.
-   */
   async startAnalysis(params: {
     uploadId: string;
     userId: string;
@@ -329,17 +292,6 @@ export class UploadsService {
     return data as UploadRecord[];
   }
 
-  /**
-   * Delete one of the caller's own uploads, its context document if any, and
-   * its analysis (`analyses.upload_id` cascades). Scoped by `requireUpload`
-   * the same way every other mutating route is, so a user can never delete
-   * (or even discover the existence of) another user's upload by id.
-   *
-   * Storage objects are removed before the row so a failed row delete never
-   * orphans a row pointing at bytes that no longer exist; the reverse order
-   * would risk the opposite (bytes surviving with no row to find them by),
-   * which is the safer failure mode to leave behind.
-   */
   async deleteUpload(uploadId: string, userId: string): Promise<void> {
     const upload = await this.requireUpload(uploadId, userId);
 
@@ -377,14 +329,6 @@ export class UploadsService {
     return upload;
   }
 
-  /**
-   * The company for one upload's (user, domain) pair.
-   *
-   * By the time this is called, `planKpis` has already run for this upload
-   * and created it — `UsersService.companySlugFor` is idempotent, so this
-   * just resolves the existing slug rather than creating a second one, but a
-   * missing user record is still a real inconsistency worth a clear error.
-   */
   private async companySlugFor(
     userId: string,
     domain: 'retail' | 'supply-chain',
@@ -416,12 +360,6 @@ export class UploadsService {
   }
 }
 
-/**
- * Every proposed KPI gets an explicit verdict.
- *
- * `PlanDecision` defaults to `accept` and a KPI left out of the list keeps its
- * proposal, so naming only the accepted ones would quietly accept the rest.
- */
 function buildDecisions(plan: KpiPlan, accepted: string[]): PlanDecision[] {
   const acceptedSet = new Set(accepted);
   return plan.proposed.map((proposal) => ({
@@ -430,7 +368,6 @@ function buildDecisions(plan: KpiPlan, accepted: string[]): PlanDecision[] {
   }));
 }
 
-/** Header and row count, straight off the buffer NestJS already holds. */
 function summariseCsv(buffer: Buffer): CsvSummary {
   const text = buffer.toString('utf-8');
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0);

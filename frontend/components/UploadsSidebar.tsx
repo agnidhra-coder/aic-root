@@ -17,7 +17,6 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { dateStyle: "medium" });
 }
 
-/** The two states that are waiting on the user rather than on the engine. */
 function needsAttention(status: UploadStatus): boolean {
   return status === "awaiting_plan" || status === "awaiting_question";
 }
@@ -70,8 +69,6 @@ export function UploadsSidebar({
   onUploadClick: () => void;
   onDelete: (upload: UploadRecord) => void;
 }) {
-  // The id pending a second click to confirm — a stray click (or a slow
-  // double-click meant for something else) should not delete a file outright.
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   if (uploads.length === 0) {
@@ -94,8 +91,6 @@ export function UploadsSidebar({
     <ul className="space-y-1.5">
       {uploads.map((upload) => {
         const isReady = upload.status === "ready";
-        // A file waiting on the user is clickable too — that is how they get
-        // back to the KPI choice or the question they never finished.
         const isClickable = isReady || needsAttention(upload.status);
         const isSelected = upload.id === selectedId;
         const isConfirming = confirmingId === upload.id;

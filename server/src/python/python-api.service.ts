@@ -15,17 +15,6 @@ import {
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8000';
 
-/**
- * Server-to-server client for `llm_backend`'s FastAPI service.
- *
- * The Python tier has no per-caller authentication and binds 127.0.0.1 on
- * purpose when the two sit on one host — it is only ever reached from here,
- * never from the browser. When the two are deployed on separate hosts instead,
- * `PYTHON_API_SHARED_SECRET` here must match `KPI_API_SHARED_SECRET` on the
- * Python side; unset on both, it is a no-op (the local, same-host case).
- * Every route takes its selectors (`company`, `source_id`, `run_id`) as query
- * parameters; none of them has a path parameter.
- */
 @Injectable()
 export class PythonApiService {
   private readonly logger = new Logger(PythonApiService.name);
@@ -39,18 +28,6 @@ export class PythonApiService {
     this.sharedSecret = config.get<string>('PYTHON_API_SHARED_SECRET');
   }
 
-  /**
-   * `POST /companies` — provision a tenant.
-   *
-   * Seeded from the template matching `domain` when one exists (`retail`,
-   * `supply-chain` — the same calibrated thresholds and DAG `acme-retail`
-   * ships with), or `blank` otherwise, so a domain this deployment has no
-   * template for never briefly claims metrics its file cannot produce. Either
-   * way, every upload still runs the full `/kpi-plan` -> `confirm` handshake
-   * before the company answers a question, which rewrites the contract to
-   * match the file's real columns regardless of which template it started
-   * from — the template is a starting point, not a promise.
-   */
   async createCompany(params: {
     companyId: string;
     displayName: string;
@@ -74,7 +51,6 @@ export class PythonApiService {
     });
   }
 
-  /** `GET /company?company=` — 404 means the tenant is not registered. */
   async getCompany(companySlug: string): Promise<CompanyDescription | null> {
     const res = await this.fetch(
       `/company?company=${encodeURIComponent(companySlug)}`,
@@ -84,13 +60,6 @@ export class PythonApiService {
     return (await res.json()) as CompanyDescription;
   }
 
-  /**
-   * `POST /kpi-plan/sync?company=` — propose a KPI configuration from the CSV.
-   *
-   * The buffer NestJS already holds is forwarded directly; the file is never
-   * re-read from Supabase storage. The upload is *staged* by this call, which
-   * leaves the company `awaiting_data` until a plan is confirmed.
-   */
   async planKpis(params: {
     companySlug: string;
     filename: string;
@@ -113,12 +82,6 @@ export class PythonApiService {
     });
   }
 
-  /**
-   * `POST /kpi-plan/confirm/sync?company=` — commit the decided plan.
-   *
-   * Writes the tenant's real configs, accepts the staged data, and warms the
-   * pipeline. `/ask` is a 409 until this has succeeded.
-   */
   async confirmKpiPlan(params: {
     companySlug: string;
     planId: string;
@@ -141,13 +104,6 @@ export class PythonApiService {
     );
   }
 
-  /**
-   * `POST /ask?company=` — the real SSE stream, not `/ask/sync`.
-   *
-   * Frames are `event: <name>\ndata: <json>\n\n`, plus `: keepalive` comments
-   * during the long silences between stages. `onFrame` is awaited, so a slow
-   * consumer (a Supabase write per stage) backpressures rather than racing.
-   */
   async *askStream(params: {
     companySlug: string;
     question: string;
@@ -164,7 +120,6 @@ export class PythonApiService {
       body: JSON.stringify({
         question: params.question,
         persona: params.persona ?? 'analyst',
-        // The stage log is noise for this consumer; the events carry progress.
         logs: false,
       }),
     });
@@ -186,8 +141,6 @@ export class PythonApiService {
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        // Frames are separated by a blank line. Anything before the last
-        // separator is complete; the tail may be a partial frame.
         let separator = buffer.indexOf('\n\n');
         while (separator !== -1) {
           const raw = buffer.slice(0, separator);
@@ -243,7 +196,6 @@ export class PythonApiService {
             : JSON.stringify(parsed.detail);
       }
     } catch {
-      // Not JSON — the raw body is the best detail we have.
     }
     const message = `${where} failed (${res.status}): ${detail || res.statusText}`;
     this.logger.error(message);
@@ -251,7 +203,6 @@ export class PythonApiService {
   }
 }
 
-/** Carries the Python tier's status code, so callers can distinguish a 409. */
 export class PythonApiError extends Error {
   constructor(
     readonly status: number,
@@ -264,7 +215,6 @@ export class PythonApiError extends Error {
 
 function parseSseFrame(raw: string): SseFrame | null {
   const trimmed = raw.trim();
-  // `: keepalive` comments carry nothing and must not be decoded.
   if (!trimmed || trimmed.startsWith(':')) return null;
 
   let event = 'message';

@@ -48,10 +48,6 @@ export function EvidenceCard({ item }: { item: EvidenceItem }) {
           {item.contribution !== null && (
             <div
               className={clsx("h-full rounded-full", item.aligned ? "bg-accent-500" : "bg-slate-300")}
-              // A share can exceed 100% (several drivers can each move a KPI by
-              // more than its net change when they partly offset), and CSS
-              // treats a negative width as invalid, so clamp the bar itself
-              // without touching the number shown above.
               style={{ width: `${Math.min(100, Math.abs(item.contribution))}%` }}
             />
           )}

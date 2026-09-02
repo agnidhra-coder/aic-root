@@ -16,11 +16,6 @@ import {
 const TABLE = 'analyses';
 const UPLOADS_TABLE = 'uploads';
 
-/**
- * Python's `/ask` events, mapped onto the four stages the frontend already
- * polls. The stepper is a coarse view of a much longer chain; what matters is
- * that it only ever moves forward.
- */
 const STAGE_FOR_EVENT: Record<string, AnalysisStage> = {
   started: 'detect',
   ingest: 'detect',
@@ -34,8 +29,6 @@ const STAGE_FOR_EVENT: Record<string, AnalysisStage> = {
 };
 
 const STAGE_ORDER: AnalysisStage[] = ['detect', 'decompose', 'explain', 'act'];
-
-/** The base question. A blank prompt sends exactly this and nothing else. */
 export const BASE_QUESTION =
   'Analyze the KPIs I selected and tell me what needs attention.';
 
@@ -72,11 +65,6 @@ export class AnalysisService {
       );
     });
   }
-
-  /**
-   * Drive one real `/ask` run, forwarding stage progress into `uploads.stage`
-   * as the events land, and store the mapped `AnalysisResult` on completion.
-   */
   private async run(params: {
     uploadId: string;
     companySlug: string;
@@ -97,8 +85,6 @@ export class AnalysisService {
       absorbFrame(acc, frame.event, frame.data);
 
       const next = STAGE_FOR_EVENT[frame.event];
-      // Only ever forward: the repair loop revisits `narrate` and `verify`, and
-      // a stepper that walked backwards would read as the run restarting.
       if (
         next &&
         STAGE_ORDER.indexOf(next) > STAGE_ORDER.indexOf(currentStage)
@@ -111,10 +97,6 @@ export class AnalysisService {
     if (acc.error) {
       throw new Error(`${acc.error.type}: ${acc.error.message}`);
     }
-
-    // `clarify` is terminal and computes nothing. Storing it as a `ready`
-    // analysis with zero cases would read as "we looked and found nothing",
-    // which is a different — and wrong — answer.
     if (acc.clarification) {
       throw new Error(
         acc.clarification.message ??
@@ -132,13 +114,6 @@ export class AnalysisService {
     });
 
     const narrative: AskNarrative | null | undefined = acc.narrative?.narrative;
-
-    // A `KpiCase.id` is its event's id; each event names its own fact ids
-    // directly, which is a far more reliable way to tell which facts (and so
-    // which actions and narrative claims) are "this case's" than a fact's
-    // `lineage` -- movement facts carry no `event_id` in theirs at all, only
-    // a contribution fact's does, so routing by lineage alone silently
-    // misses anything that also cites a movement fact.
     const factIdsByEvent = new Map(
       (acc.evidence?.events ?? []).map((e) => [
         e.event_id,
@@ -147,9 +122,6 @@ export class AnalysisService {
     );
     attachActions(result, narrative, factIdsByEvent);
     attachNarratives(result, narrative, factIdsByEvent);
-
-    // `upsert` rather than `insert`: `analyses.upload_id` is unique, and a user
-    // may legitimately re-run a question against the same upload.
     const { error } = await this.supabase.client
       .from(TABLE)
       .upsert(

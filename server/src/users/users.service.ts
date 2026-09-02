@@ -18,28 +18,12 @@ export class UsersService {
     private readonly python: PythonApiService,
   ) {}
 
-  /**
-   * The user's Python tenant for one domain, created on first upload of that
-   * domain.
-   *
-   * One company per (user, domain): a Retail upload and a Supply Chain upload
-   * from the same user get separate companies, each seeded from the template
-   * matching its own domain. The slug is derived deterministically from the
-   * user id and domain together, so a half-finished provisioning (company
-   * created, row not yet written) reconciles on the next attempt rather than
-   * orphaning a tenant.
-   */
   async companySlugFor(
     user: { id: string; name: string },
     domain: PythonDomain,
   ): Promise<string> {
     const existing = await this.findCompany(user.id, domain);
     if (existing) {
-      // This table is NestJS's own record, not Python's -- if Python's
-      // workspace was ever reset or never actually got created (e.g. its
-      // filesystem state was wiped or reverted independently), this row
-      // would otherwise keep pointing at a company that 404s on every call.
-      // Reconcile once instead of trusting the mapping blindly.
       const stillExists = await this.python.getCompany(existing.company_slug);
       if (stillExists) return existing.company_slug;
 
@@ -49,29 +33,14 @@ export class UsersService {
 
     const slug = generateCompanySlug(user.id, domain);
 
-    // Python's own registry enforces one `supabase_user_id` per company,
-    // globally -- a rule from when the design assumed one company per user
-    // total, never per domain. NestJS is what now supports several domains
-    // per user (via this table), so the id can only ever be claimed once:
-    // on this user's first company here, or (for a tenant provisioned
-    // before this table existed, or through some other path) on a company
-    // Python already knows about that this table has never heard of.
-    // Python's `external_ids` therefore only ever resolves a user to one
-    // company, which is fine -- this table is what NestJS actually reads to
-    // resolve (user, domain) -> slug, never Python's.
     const hasAnyCompany = await this.hasAnyCompany(user.id);
 
-    // The company may already exist from an interrupted previous attempt for
-    // this same (user, domain); creating it again would be a 409 on an id
-    // this pair already owns.
     const known = await this.python.getCompany(slug);
     if (!known) {
       await this.createCompany(
         slug,
         user,
         domain,
-        // Skip the claim outright when this table already knows the user
-        // has a company -- saves the round trip that would just 422.
         hasAnyCompany,
       );
     }
@@ -106,23 +75,6 @@ export class UsersService {
     return data !== null;
   }
 
-  /**
-   * `POST /companies`, tolerating Python's one-id-per-company rule.
-   *
-   * `skipClaim` avoids the round trip when this table already knows the
-   * user has a company elsewhere. But that table can be wrong in the other
-   * direction — a tenant created before it existed, or by some other path —
-   * so a 422 naming this exact id is caught and retried without the claim
-   * rather than surfaced as a real provisioning failure. Any other error
-   * (an unknown template, a duplicate slug) is a real failure and still
-   * propagates.
-   *
-   * A 409 from a folder that exists but was not registered (a registry
-   * reset that did not also touch the filesystem) is handled entirely on
-   * the Python side — `POST /companies` re-registers that folder itself
-   * before ever returning the conflict here, so a 409 reaching this catch
-   * is always a genuine one and is left to propagate.
-   */
   private async createCompany(
     slug: string,
     user: { id: string; name: string },
@@ -228,13 +180,6 @@ export class UsersService {
   }
 }
 
-/**
- * `u-<first 8 chars of the uuid>-<domain>` — short, url-safe, and
- * deterministic in the (user id, domain) pair, so two domains for the same
- * user never collide on one slug. Satisfies the engine's `CompanySlug`
- * pattern, `^[a-z0-9][a-z0-9_-]{1,62}$`, which a lowercased uuid prefix and a
- * hyphenated domain name always do.
- */
 export function generateCompanySlug(
   userId: string,
   domain: PythonDomain,

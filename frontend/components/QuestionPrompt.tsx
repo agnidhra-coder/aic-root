@@ -3,17 +3,8 @@
 import { useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 
-/** Exactly what the server sends when the box is left blank. */
 const BASE_QUESTION = "Analyze the KPIs I selected and tell me what needs attention.";
 
-/**
- * The question step.
- *
- * Optional by design: a blank box asks the base question alone, and anything
- * typed is appended to it. Context the data does not contain belongs here —
- * the engine places it against the detected windows and never lets it become a
- * cause on its own.
- */
 export function QuestionPrompt({
   isSubmitting,
   error,
@@ -26,9 +17,6 @@ export function QuestionPrompt({
   const [question, setQuestion] = useState("");
 
   return (
-    // Capped and centered, even though the page shell around it is now full-
-    // bleed for the KPI grid: a lone textarea stretched across a wide monitor
-    // reads worse, not better, so this step keeps a comfortable line length.
     <div className="mx-auto max-w-3xl">
       <div className="mb-6">
         <h2 className="text-xl font-semibold tracking-tight text-slate-900">

@@ -10,15 +10,6 @@ import { StepIndicator } from "./StepIndicator";
 
 const domains: UploadDomain[] = ["retail", "supply-chain"];
 
-/**
- * The domain the upload is filed under.
- *
- * Not a hard contract — nothing rejects the CSV for not matching it, and the
- * KPI plan still derives what the file can actually compute from its own
- * columns. But it does pick which analysis workspace this upload runs
- * against and what template that workspace starts from, so this step is a
- * real choice, not just cosmetic filing.
- */
 const DEFAULT_DOMAIN: UploadDomain = "retail";
 
 function formatFileSize(bytes: number): string {
@@ -75,9 +66,6 @@ export function UploadWizard({
     setIsUploading(true);
     setError(null);
     try {
-      // The domain files the upload for the dashboard's tab filter AND picks
-      // the analysis workspace/starting template this file's KPI plan runs
-      // against — it still does not gate or reject the CSV either way.
       const upload = await createUploadRequest(token, { domain, file });
       onUploaded(upload);
     } catch (err) {

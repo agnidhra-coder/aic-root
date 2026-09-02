@@ -80,9 +80,6 @@ export class UploadsController {
       }
     }
 
-    // No domain-contract pre-validation any more. The KPI engine derives what
-    // this file can compute from its own columns against the catalogue, so a
-    // gate on a fixed per-domain column list would reject files it can handle.
     return this.uploadsService.create({
       userId: user.id,
       userName: user.name,
@@ -112,7 +109,6 @@ export class UploadsController {
     await this.uploadsService.deleteUpload(id, user.id);
   }
 
-  /** The proposed KPI plan, for the accept/reject step. */
   @Get(':id/plan')
   async getPlan(@Param('id') id: string, @CurrentUser() user: PublicUser) {
     const upload = await this.uploadsService.findByIdForUser(id, user.id);
@@ -127,7 +123,6 @@ export class UploadsController {
     return upload.kpi_plan;
   }
 
-  /** Commit the user's accept/reject decisions and configure their workspace. */
   @Post(':id/plan/confirm')
   confirmPlan(
     @Param('id') id: string,
@@ -141,7 +136,6 @@ export class UploadsController {
     });
   }
 
-  /** Ask the question and open the real analysis stream. */
   @Post(':id/analysis')
   startAnalysis(
     @Param('id') id: string,

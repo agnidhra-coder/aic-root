@@ -11,17 +11,6 @@ function boundColumns(proposal: KpiProposal): string[] {
     .filter((c): c is string => Boolean(c));
 }
 
-/**
- * A caveat like `'Total Revenue' is barred as an independent driver: exact
- * duplicate of 'Net Sales'` in user-friendly terms.
- *
- * These are informational, not a problem with the KPI: it is still fully
- * computed and still safe to accept. They only affect *causal attribution* —
- * if a column is an exact duplicate or algebraic combination of another
- * column in the file, the engine will not let it stand in as an independent
- * cause, so a "why did this move" explanation will not double-count it. The
- * KPI's own value is unaffected either way.
- */
 function friendlyCaveat(raw: string): string {
   const match = raw.match(/^'([^']+)' is barred as an independent driver: (.+)$/);
   if (!match) return raw;
@@ -33,13 +22,6 @@ function lowerFirst(text: string): string {
   return text.length > 0 ? text[0].toLowerCase() + text.slice(1) : text;
 }
 
-/**
- * The accept/reject step.
- *
- * Every proposed KPI gets an explicit verdict — the API rejects everything not
- * named as accepted, so leaving one alone is a decision, not an omission.
- * Column re-binding is deliberately not offered here.
- */
 export function KpiPlanSelector({
   plan,
   isSubmitting,
@@ -51,8 +33,6 @@ export function KpiPlanSelector({
   error: string | null;
   onConfirm: (acceptedKpis: string[]) => void;
 }) {
-  // Recommended means computable *and* aggregation-safe — what `--accept-all`
-  // takes — so it is the sensible starting selection.
   const [accepted, setAccepted] = useState<Set<string>>(
     () => new Set(plan.proposed.filter((p) => p.recommended).map((p) => p.name))
   );
@@ -256,7 +236,6 @@ export function KpiPlanSelector({
   );
 }
 
-/** An (i) badge that reveals a caveat's explanation in a small popover. */
 function CaveatNote({ message }: { message: string }) {
   const [open, setOpen] = useState(false);
 
@@ -269,8 +248,6 @@ function CaveatNote({ message }: { message: string }) {
       <button
         type="button"
         onClick={(e) => {
-          // Toggle rather than only opening, so a tap on touch devices (which
-          // never fires mouseleave) can also dismiss it.
           e.stopPropagation();
           setOpen((prev) => !prev);
         }}

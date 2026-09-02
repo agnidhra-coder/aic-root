@@ -60,8 +60,6 @@ export default function RegisterPage() {
       if (touched[field]) {
         updated[field] = validateField(field, next) ?? undefined;
       }
-      // Re-check confirmPassword whenever password changes, so a fixed
-      // password clears a stale "don't match" error without needing a blur.
       if (field === "password" && touched.confirmPassword) {
         updated.confirmPassword = validateConfirmPassword(next.password, next.confirmPassword) ?? undefined;
       }

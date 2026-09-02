@@ -22,7 +22,6 @@ const stages = [
   { key: "act", label: "Act", icon: MessageSquareText },
 ];
 
-/** Tapping a circle shows that stage's section below — always violet-outlined, since every stage is equally reachable rather than a progress readout. */
 function StageSelector({ active, onSelect }: { active: string; onSelect: (key: string) => void }) {
   return (
     <div className="flex items-center justify-around">
@@ -61,7 +60,6 @@ function StageSelector({ active, onSelect }: { active: string; onSelect: (key: s
   );
 }
 
-/** The one case this page needs, from whichever `AnalysisResult` has it. */
 function findCase(uploadId: string, caseId: string): KpiCase | undefined {
   return getCachedAnalysis(uploadId)?.cases.find((c) => c.id === caseId);
 }
@@ -69,8 +67,6 @@ function findCase(uploadId: string, caseId: string): KpiCase | undefined {
 function CaseDetailContent() {
   const { uploadId, caseId } = useParams<{ uploadId: string; caseId: string }>();
   const { token } = useAuth();
-  // Seeded synchronously from the results page's cache — arriving here via
-  // "View analysis" never needs to re-fetch or re-flash "Loading…".
   const [kpiCase, setKpiCase] = useState<KpiCase | null>(
     () => findCase(uploadId, caseId) ?? null
   );
@@ -79,8 +75,6 @@ function CaseDetailContent() {
   const [stage, setStage] = useState("detect");
 
   useEffect(() => {
-    // Already have it (from cache, or a previous run of this effect) —
-    // nothing to fetch.
     if (findCase(uploadId, caseId)) return;
 
     async function load() {
@@ -206,10 +200,6 @@ function CaseDetailContent() {
                   ) : (
                     <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
                       {kpiCase.evidence.map((item, index) => (
-                        // `label` is not guaranteed unique — two contribution facts
-                        // can produce the same text (e.g. via different attribution
-                        // paths), so the index disambiguates them, as in
-                        // DriverBreakdownCard.
                         <EvidenceCard key={`${item.label}-${index}`} item={item} />
                       ))}
                     </div>

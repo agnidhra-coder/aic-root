@@ -3,14 +3,6 @@ import { ArrowDownRight, ArrowUpRight, Info } from "lucide-react";
 import type { DriverKpi } from "@/lib/api";
 import { MethodBadge } from "./MethodBadge";
 
-/**
- * One event window can bundle movements in several KPIs that share drivers —
- * `Total Expenses` and `COGS` commonly explain both Net Profit Margin and
- * Gross Profit at once — so the same driver name can legitimately appear more
- * than once here, each row explaining a different KPI's movement. Grouping by
- * `explainedKpi` is what makes that readable instead of looking like a
- * duplicate.
- */
 function groupByExplainedKpi(drivers: DriverKpi[]): Map<string, DriverKpi[]> {
   const groups = new Map<string, DriverKpi[]>();
   for (const driver of drivers) {
@@ -22,14 +14,6 @@ function groupByExplainedKpi(drivers: DriverKpi[]): Map<string, DriverKpi[]> {
   return groups;
 }
 
-/**
- * True when this group's contributions can only be read correctly by
- * noticing they partly cancel out — some driver pushed the KPI one way, a
- * bigger one pushed it back, and the KPI's real move is the small leftover
- * of two much larger swings. Without calling this out, a share past 100%
- * (or two large opposite-signed shares) reads as broken math rather than
- * what it is.
- */
 function hasOffsettingDrivers(drivers: DriverKpi[]): boolean {
   const shares = drivers.map((d) => d.delta).filter((d) => d !== 0);
   const hasLargeShare = shares.some((d) => Math.abs(d) > 100);
@@ -47,8 +31,6 @@ export function DriverBreakdownCard({ drivers }: { drivers: DriverKpi[] }) {
   }
 
   const groups = [...groupByExplainedKpi(drivers)];
-  // A single group naming the page's own KPI needs no extra heading — the
-  // page's own "Driver KPIs — what's moving X" title already says it.
   const showHeadings = groups.length > 1;
 
   return (
@@ -85,16 +67,9 @@ function DriverGroup({ drivers }: { drivers: DriverKpi[] }) {
     <div className="divide-y divide-slate-100">
       {sorted.map((driver, index) => {
         const isPositive = driver.delta >= 0;
-        // Reference equality, not name equality: two distinct contribution
-        // facts can legitimately name the same driver KPI, so only the
-        // biggest-drag entry itself should be flagged, not every row that
-        // shares its name.
         const isWorst = driver === worst;
         return (
           <div
-            // `kpiName` is not unique within a group either — the same driver
-            // can appear more than once via different attribution paths — so
-            // the index disambiguates.
             key={`${driver.kpiName}-${index}`}
             className={clsx(
               "flex flex-wrap items-center justify-between gap-3 px-6 py-4",
